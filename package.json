@@ -1,0 +1,44 @@
+{
+  "name": "dca-vibekit-agent",
+  "version": "1.0.0",
+  "description": "Multi-user DCA automation platform with Arbitrum Vibekit and PostgreSQL/Prisma for automated cryptocurrency investments",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:run": "vitest run",
+    "test:watch": "vitest watch",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx}\""
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "arbitrum-vibekit-core": "file:../New/arbitrum-vibekit/typescript/lib/arbitrum-vibekit-core",
+    "ai": "^4.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "nanoid": "^5.0.7",
+    "p-retry": "^6.2.1",
+    "prisma": "^6.1.0",
+    "@prisma/client": "^6.1.0",
+    "viem": "^2.26.3",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.2",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

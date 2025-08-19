@@ -1,0 +1,74 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model DcaPlan {
+  id               String   @id @default(cuid())
+  userAddress      String   @map("user_address") @db.VarChar(42)
+  fromToken        String   @map("from_token") @db.VarChar(10)
+  toToken          String   @map("to_token") @db.VarChar(10)
+  amount           Decimal  @db.Decimal(36, 18)
+  intervalMinutes  Int      @map("interval_minutes")
+  durationWeeks    Int      @map("duration_weeks")
+  status           DcaStatus @default(ACTIVE)
+  nextExecution    DateTime @map("next_execution") @db.Timestamptz
+  executionCount   Int      @default(0) @map("execution_count")
+  totalExecutions  Int      @map("total_executions")
+  slippage         Decimal  @default(0.005) @db.Decimal(5, 4)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  executions ExecutionHistory[]
+
+  // Indexes for multi-user performance optimization
+  @@index([nextExecution, status], name: "idx_due_plans")
+  @@index([userAddress], name: "idx_user_plans")
+  @@index([status], name: "idx_plan_status")
+  @@index([createdAt], name: "idx_plan_created")
+  @@map("dca_plans")
+}
+
+model ExecutionHistory {
+  id            String   @id @default(cuid())
+  planId        String   @map("plan_id")
+  executedAt    DateTime @default(now()) @map("executed_at") @db.Timestamptz
+  fromAmount    Decimal  @map("from_amount") @db.Decimal(36, 18)
+  toAmount      Decimal  @map("to_amount") @db.Decimal(36, 18)
+  exchangeRate  Decimal  @map("exchange_rate") @db.Decimal(36, 18)
+  gasFee        Decimal? @map("gas_fee") @db.Decimal(36, 18)
+  txHash        String?  @map("tx_hash") @db.VarChar(66)
+  status        ExecutionStatus
+  errorMessage  String?  @map("error_message") @db.Text
+
+  // Relations
+  plan DcaPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  // Indexes for performance
+  @@index([planId], name: "idx_execution_plan")
+  @@index([executedAt], name: "idx_execution_time")
+  @@index([status], name: "idx_execution_status")
+  @@index([txHash], name: "idx_execution_tx")
+  @@map("execution_history")
+}
+
+enum DcaStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum ExecutionStatus {
+  SUCCESS
+  FAILED
+  PENDING
+}
