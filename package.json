@@ -19,8 +19,9 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx}\""
   },
   "dependencies": {
+    "@google-a2a/types": "file:./local-deps/a2a-types",
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "arbitrum-vibekit-core": "file:../New/arbitrum-vibekit/typescript/lib/arbitrum-vibekit-core",
+    "arbitrum-vibekit-core": "file:./local-deps/arbitrum-vibekit-core",
     "ai": "^4.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",

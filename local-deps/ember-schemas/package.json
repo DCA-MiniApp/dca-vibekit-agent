@@ -1,0 +1,22 @@
+{
+  "name": "ember-schemas",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "prepare": "pnpm build",
+    "build": "tsc -b",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "format": "prettier --write \"src/**/*.ts\""
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "zod": "^3.24.3"
+  }
+}

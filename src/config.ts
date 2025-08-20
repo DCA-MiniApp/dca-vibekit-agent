@@ -1,5 +1,5 @@
 import type { AgentConfig } from 'arbitrum-vibekit-core';
-// import { dcaSwappingSkill } from './skills/dca-swapping.js';
+import { dcaSwappingSkill } from './skills/dca-swapping.js';
 
 export const agentConfig: AgentConfig = {
   name: process.env.AGENT_NAME || 'DCA Agent',
@@ -8,8 +8,7 @@ export const agentConfig: AgentConfig = {
     process.env.AGENT_DESCRIPTION ||
     'Multi-user DCA automation platform supporting automated cryptocurrency investments with PostgreSQL persistence and Arbitrum Vibekit integration',
   skills: [
-    // Skills will be added in Phase 3
-    // dcaSwappingSkill,
+    dcaSwappingSkill,
   ],
   url: process.env.AGENT_URL || 'localhost',
   capabilities: {

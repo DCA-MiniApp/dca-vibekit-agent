@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "target": "ES2022",
+    "allowJs": true,
+    "resolveJsonModule": true,
+    "moduleDetection": "force",
+    "isolatedModules": true,
+    "verbatimModuleSyntax": false,
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "module": "NodeNext",
+    "sourceMap": true,
+    "baseUrl": "./",
+    "outDir": "dist",
+    "lib": ["es2022"],
+    "paths": {
+      "@modelcontextprotocol/sdk/types.js": [
+        "./node_modules/@modelcontextprotocol/sdk/dist/esm/types.d.ts"
+      ],
+      "@google-a2a/types/src/types.js": ["./node_modules/@google-a2a/types/src/types.ts"],
+      "ember-schemas": ["./node_modules/ember-schemas/src"],
+      "ember-schemas/*": ["./node_modules/ember-schemas/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}
