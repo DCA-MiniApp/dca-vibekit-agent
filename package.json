@@ -6,7 +6,8 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc --build",
-    "dev": "tsx src/index.ts",
+    "dev": "NODE_OPTIONS='--max-old-space-size=6144' tsx src/index.ts",
+    "dev:fast": "NODE_ENV=development ENABLE_SCHEDULER=true tsx src/index.ts",
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:run": "vitest run",
@@ -21,15 +22,15 @@
   "dependencies": {
     "@google-a2a/types": "file:./local-deps/a2a-types",
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "arbitrum-vibekit-core": "file:./local-deps/arbitrum-vibekit-core",
+    "@prisma/client": "^6.1.0",
     "ai": "^4.0.0",
+    "arbitrum-vibekit-core": "file:local-deps/arbitrum-vibekit-core",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "nanoid": "^5.0.7",
     "p-retry": "^6.2.1",
     "prisma": "^6.1.0",
-    "@prisma/client": "^6.1.0",
     "viem": "^2.26.3",
     "zod": "^3.24.1"
   },

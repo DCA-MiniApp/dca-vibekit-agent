@@ -39,8 +39,8 @@ interface ChainConfig {
 
 // Support for Arbitrum (can be extended later)
 const chainIdMap: Record<string, ChainConfig> = {
-  '42161': { 
-    viemChain: arbitrum, 
+  '42161': {
+    viemChain: arbitrum,
     rpcUrl: process.env.ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc'
   },
 };
@@ -65,6 +65,10 @@ export class DCATransactionExecutor {
     this.userAddress = userAddress;
   }
 
+  get executorAddress(): Address {
+    return this.userAddress;
+  }
+
   private log(...args: unknown[]) {
     console.log('[DCATransactionExecutor]', ...args);
   }
@@ -74,10 +78,10 @@ export class DCATransactionExecutor {
   }
 
   /**
-   * Execute DCA swap transaction
+   * Execute DCA swap transactions (can be multiple: approval + swap)
    * @param planId - DCA plan identifier for logging
    * @param transactions - Transaction plans from Ember MCP
-   * @returns Transaction hash and execution summary
+   * @returns Transaction hashes and execution summary
    */
   async executeDCASwap(planId: string, transactions: TransactionPlan[]): Promise<{
     txHash: string;
@@ -86,28 +90,61 @@ export class DCATransactionExecutor {
     gasUsed: string;
   }> {
     if (!transactions || transactions.length === 0) {
+      this.log(`DCA swap for plan ${planId}: No transactions required.`);
       throw new Error('No transactions provided for DCA swap execution');
     }
 
     try {
-      this.log(`Executing DCA swap for plan ${planId}...`);
-      
-      // For DCA, we typically expect a single swap transaction
-      const transaction = transactions[0];
-      if (!transaction) {
-        throw new Error('No transaction provided for execution');
+      this.log(`Executing ${transactions.length} transaction(s) for DCA swap plan ${planId}...`);
+
+      const txHashes: string[] = [];
+      let totalGasUsed = BigInt(0);
+
+      // Execute all transactions sequentially (like liquidation prevention agent)
+      for (let i = 0; i < transactions.length; i++) {
+        const transaction = transactions[i];
+        if (!transaction) {
+          throw new Error(`Transaction ${i + 1} is undefined`);
+        }
+
+        this.log(`Executing transaction ${i + 1}/${transactions.length} for plan ${planId}...`);
+
+        // Log transaction details for debugging
+        this.log(`Transaction ${i + 1} details:`, {
+          to: transaction.to,
+          value: transaction.value || '0',
+          valueInETH: transaction.value ? (BigInt(transaction.value) / BigInt(10 ** 18)).toString() + ' ETH' : '0 ETH',
+          dataPrefix: transaction.data ? transaction.data.substring(0, 10) : 'no data',
+          chainId: transaction.chainId,
+          gas: transaction.gas || 'auto',
+        });
+
+        // Special check for ETH value requirements
+        if (transaction.value && transaction.value !== '0') {
+          this.log(`⚠️  Transaction requires ETH value: ${transaction.value} wei (${(BigInt(transaction.value) / BigInt(10 ** 18)).toString()} ETH)`);
+        }
+
+        const { txHash, gasUsed } = await this.signAndSendTransaction(transaction);
+        txHashes.push(txHash);
+        totalGasUsed += BigInt(gasUsed);
+
+        this.log(`Transaction ${i + 1}/${transactions.length} sent: ${txHash}`);
       }
-      
-      const { txHash, gasUsed } = await this.signAndSendTransaction(transaction);
-      
-      this.log(`DCA swap executed successfully: ${txHash}`);
-      
+
+      this.log(`DCA swap for plan ${planId} executed successfully! Transaction hash(es): ${txHashes.join(', ')}`);
+
       // Return execution details for database recording
+      // For DCA, the last transaction is typically the swap
+      const finalTxHash = txHashes[txHashes.length - 1];
+      if (!finalTxHash) {
+        throw new Error('No transaction hashes were recorded');
+      }
+
       return {
-        txHash,
-        fromAmount: transaction.value || '0', // Will be filled from actual transaction data
-        toAmount: '0', // Will be calculated from swap result
-        gasUsed,
+        txHash: finalTxHash, // Use the last (swap) transaction hash
+        fromAmount: '0', // Will be filled from actual swap result analysis
+        toAmount: '0', // Will be calculated from swap result analysis
+        gasUsed: totalGasUsed.toString(),
       };
     } catch (error: unknown) {
       const err = error as Error;
@@ -148,21 +185,71 @@ export class DCATransactionExecutor {
       transport: http(chainConfig.rpcUrl)
     });
 
+    // Validate transaction fields (similar to liquidation prevention agent)
+    if (!tx.to || !/^0x[a-fA-F0-9]{40}$/.test(tx.to)) {
+      const errorMsg = `Transaction object invalid 'to' field: ${tx.to}`;
+      this.logError(errorMsg, tx);
+      throw new Error(errorMsg);
+    }
+
+    // For swap transactions, data is required. For simple transfers, it might be optional
+    if (tx.data && !isHex(tx.data)) {
+      const errorMsg = `Transaction object invalid 'data' field (not hex): ${tx.data}`;
+      this.logError(errorMsg, tx);
+      throw new Error(errorMsg);
+    }
+
+    const toAddress = tx.to as Address;
+    const txData = tx.data ? (tx.data as Hex) : undefined;
+    const txValue = tx.value ? BigInt(tx.value) : 0n;
+
     try {
-      // Validate required transaction fields
-      if (!tx.to || !isHex(tx.to)) {
-        throw new Error(`Invalid 'to' address: ${tx.to}`);
+      const dataPrefix = txData ? txData.substring(0, 10) : 'no data';
+      this.log(
+        `Preparing transaction to ${toAddress} on chain ${chainConfig.viemChain.id} from ${this.userAddress} with data ${dataPrefix}...`
+      );
+
+      // Check ETH balance if transaction requires value
+      if (txValue > 0n) {
+        const ethBalance = await publicClient.getBalance({ address: this.userAddress });
+        this.log(`💰 ETH Balance: ${ethBalance.toString()} wei (${(ethBalance / BigInt(10 ** 18)).toString()} ETH)`);
+        this.log(`💰 Required ETH: ${txValue.toString()} wei (${(txValue / BigInt(10 ** 18)).toString()} ETH)`);
+
+        if (ethBalance < txValue) {
+          throw new Error(`Insufficient ETH balance. Required: ${(txValue / BigInt(10 ** 18)).toString()} ETH, Available: ${(ethBalance / BigInt(10 ** 18)).toString()} ETH`);
+        }
       }
 
-      // Send the transaction
-      this.log(`Sending transaction to ${tx.to}...`);
+      this.log(`Sending transaction...`);
+
+      // Build transaction parameters
+
+      // Estimate gas using the public client, then add a 20% buffer
+      console.log("esitmating gas")
+      const gasEstimate = await publicClient.estimateGas({
+        account: this.userAddress,
+        to: toAddress,
+        value: txValue,
+        data: txData,
+      }); 
+      console.log("gas estimated", gasEstimate);
+      
+      this.log("gasEstimate", gasEstimate);
+
       const txParams: any = {
-        to: tx.to as Address,
-        value: tx.value ? BigInt(tx.value) : 0n,
-        data: tx.data as Hex | undefined,
-        gas: tx.gas ? BigInt(tx.gas) : undefined,
-        nonce: tx.nonce ? Number(tx.nonce) : undefined,
+        to: toAddress,
+        value: txValue,
+        data: txData,
+        gas: gasEstimate * 12n / 10n, // add 20% buffer
       };
+
+      // Add gas parameters if provided
+      if (tx.gas) {
+        txParams.gas = BigInt(tx.gas);
+      }
+      if (tx.nonce) {
+        txParams.nonce = Number(tx.nonce);
+      }
 
       // Add fee parameters (EIP-1559 or legacy)
       if (tx.maxFeePerGas && tx.maxPriorityFeePerGas) {
@@ -171,53 +258,71 @@ export class DCATransactionExecutor {
       } else if (tx.gasPrice) {
         txParams.gasPrice = BigInt(tx.gasPrice);
       }
-
+      
+      console.log("txParams before sending", txParams);
+      this.log("txParams", txParams);
+      this.log("walletClient", walletClient);
       const txHash = await walletClient.sendTransaction(txParams);
 
-      this.log(`Transaction sent: ${txHash}`);
+      this.log(
+        `Transaction submitted to chain ${chainConfig.viemChain.id}: ${txHash}. Waiting for confirmation...`
+      );
 
       // Wait for transaction confirmation
-      this.log('Waiting for transaction confirmation...');
       const receipt = await publicClient.waitForTransactionReceipt({
         hash: txHash,
         timeout: 120_000, // 2 minutes timeout
       });
 
+      this.log(
+        `Transaction confirmed on chain ${chainConfig.viemChain.id} in block ${receipt.blockNumber} (Status: ${receipt.status}): ${txHash}`
+      );
+
       if (receipt.status === 'reverted') {
-        throw new Error(`Transaction reverted: ${txHash}`);
+        throw new Error(
+          `Transaction ${txHash} failed (reverted). Check blockchain explorer for details.`
+        );
       }
 
-      this.log(`Transaction confirmed: ${txHash}, Gas used: ${receipt.gasUsed.toString()}`);
-      
       return {
         txHash,
         gasUsed: receipt.gasUsed.toString(),
       };
 
     } catch (error: unknown) {
+      // Improved error handling based on liquidation prevention agent
+      let revertReason =
+        error instanceof Error
+          ? `Transaction failed: ${error.message}`
+          : 'Transaction failed: Unknown error';
+
       if (error instanceof BaseError) {
-        let cause = error.cause;
-        
-        // Handle specific contract revert errors
+        const cause = error.walk((e: unknown) => e instanceof ContractFunctionRevertedError);
         if (cause instanceof ContractFunctionRevertedError) {
-          const revertReason = cause.data?.errorName || 'Unknown contract error';
-          this.logError(`Contract revert: ${revertReason}`);
-          throw new Error(`Transaction failed: ${revertReason}`);
-        }
-        
-        // Try to extract a readable error message
-        while (cause) {
-          if ((cause as any).message) {
-            this.logError(`Transaction error: ${(cause as any).message}`);
-            throw new Error(`Transaction failed: ${(cause as any).message}`);
+          const errorName = cause.reason ?? cause.shortMessage;
+          revertReason = `Transaction reverted: ${errorName}`;
+
+          if (cause.data?.errorName === '_decodeRevertReason') {
+            const hexReason = cause.data.args?.[0];
+            if (hexReason && typeof hexReason === 'string' && isHex(hexReason as Hex)) {
+              try {
+                revertReason = `Transaction reverted: ${hexToString(hexReason as Hex)}`;
+              } catch (decodeError) {
+                this.logError('Failed to decode revert reason hex:', hexReason, decodeError);
+              }
+            }
           }
-          cause = (cause as any).cause;
+        } else {
+          revertReason = `Transaction failed: ${error.shortMessage}`;
         }
+        this.logError(`Send transaction failed: ${revertReason}`, error.details);
+      } else if (error instanceof Error) {
+        this.logError(`Send transaction failed: ${revertReason}`, error);
+      } else {
+        this.logError(`Send transaction failed with unknown error type: ${revertReason}`, error);
       }
-      
-      const err = error as Error;
-      this.logError('Transaction failed:', err.message);
-      throw new Error(`Transaction execution failed: ${err.message}`);
+
+      throw new Error(revertReason);
     }
   }
 }

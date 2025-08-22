@@ -6,6 +6,8 @@
 
 import 'dotenv/config';
 import { Agent, createProviderSelector, getAvailableProviders } from 'arbitrum-vibekit-core';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { contextProvider } from './context/provider.js';
 import { agentConfig } from './config.js';
 import { app as apiServer } from './api/server.js';
@@ -35,7 +37,7 @@ if (!selectedProvider) {
   process.exit(1);
 }
 
-const modelOverride = process.env.AI_MODEL;
+const modelOverride = process.env.LLM_MODEL;
 
 // Export agent configuration for testing
 export { agentConfig };
@@ -46,7 +48,7 @@ const agent = Agent.create(agentConfig, {
   cors: process.env.ENABLE_CORS !== 'false',
   basePath: process.env.BASE_PATH || undefined,
   llm: {
-    model: modelOverride ? selectedProvider!(modelOverride) : selectedProvider!(),
+    model: modelOverride ? selectedProvider!(modelOverride) : selectedProvider!(process.env.LLM_MODEL || 'deepseek/deepseek-chat-v3-0324:free'),
   },
 });
 
@@ -68,19 +70,53 @@ async function startAgent() {
 
     // Start the MCP agent
     await agent.start(PORT, async deps => {
+      // Create manual MCP client for Ember endpoint (following liquidation prevention agent pattern)
+      let emberMcpClient: Client | null = null;
+
+      const emberEndpoint = process.env.EMBER_MCP_SERVER_URL || 'https://api.emberai.xyz/mcp';
+
+      try {
+        console.log(`[DCA Agent] Connecting to MCP server at ${emberEndpoint}`);
+        emberMcpClient = new Client(
+          { name: 'DCAAgent', version: '1.0.0' },
+          { capabilities: { tools: {}, resources: {}, prompts: {} } }
+        );
+
+        const transport = new StreamableHTTPClientTransport(new URL(emberEndpoint));
+        // Add connection timeout similar to other agents
+        const timeoutMs = parseInt(process.env.MCP_CONNECTION_TIMEOUT || '90000', 10);
+        const connectionPromise = emberMcpClient.connect(transport);
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`MCP connection timeout after ${timeoutMs}ms`)), timeoutMs)
+        );
+        await Promise.race([connectionPromise, timeoutPromise]);
+        console.log('[DCA Agent] MCP client connected successfully.');
+      } catch (error) {
+        console.error('[DCA Agent] Failed to connect to MCP server:', error);
+      }
+
+      // Add the manual MCP client to the deps so tools can access it (only if connection succeeded)
+      const updatedDeps = {
+        ...deps,
+        mcpClients: emberMcpClient ? {
+          ...deps.mcpClients,
+          'ember-mcp-tool-server': emberMcpClient
+        } : deps.mcpClients
+      };
+
       // The context provider needs the LLM model from the agent configuration
       const llmModel = selectedProvider!(modelOverride);
-      const context = await contextProvider({ ...deps, llmModel });
-      
+      const context = await contextProvider({ ...updatedDeps, llmModel });
+
       // Start the DCA scheduler if transaction execution is enabled
       if (context.executeTransaction && process.env.ENABLE_SCHEDULER !== 'false') {
         console.log('🤖 Starting DCA scheduler...');
         dcaScheduler = new DCAScheduler(context);
-        
+
         try {
           await dcaScheduler.startScheduler();
           console.log('✅ DCA scheduler started successfully');
-          
+
           // Expose scheduler for API access
           (global as any).dcaScheduler = dcaScheduler;
         } catch (error) {
@@ -93,7 +129,7 @@ async function startAgent() {
       } else {
         console.log('ℹ️  DCA scheduler disabled via ENABLE_SCHEDULER=false');
       }
-      
+
       return context;
     });
 
@@ -166,13 +202,13 @@ const shutdown = async (signal: string) => {
   try {
     // Import prisma service dynamically to avoid circular dependencies
     const { closeDatabaseConnection } = await import('./services/prisma.js');
-    
+
     // Stop DCA scheduler first
     if (dcaScheduler) {
       await dcaScheduler.stopScheduler();
       dcaScheduler = null;
     }
-    
+
     // Close API server
     if (apiServerInstance) {
       await new Promise<void>((resolve) => {
@@ -182,10 +218,10 @@ const shutdown = async (signal: string) => {
         });
       });
     }
-    
+
     // Close database connection
     await closeDatabaseConnection();
-    
+
     // Stop the agent
     await agent.stop();
     console.log('✅ DCA Agent stopped successfully');

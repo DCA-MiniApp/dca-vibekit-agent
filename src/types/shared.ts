@@ -17,7 +17,7 @@ export const CreateDCAPlanSchema = z.object({
     .regex(/^\d+(\.\d+)?$/, 'Amount must be a valid number')
     .describe('Investment amount per execution'),
   intervalMinutes: z.number()
-    .min(5)
+    .min(1)
     .max(43200) // Max 30 days
     .describe('Execution interval in minutes'),
   durationWeeks: z.number()
