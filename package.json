@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc --build",
-    "dev": "NODE_OPTIONS='--max-old-space-size=6144' tsx src/index.ts",
+    "dev": "NODE_OPTIONS='--max-old-space-size=6244' tsx src/index.ts",
     "dev:fast": "NODE_ENV=development ENABLE_SCHEDULER=true tsx src/index.ts",
     "start": "node dist/index.js",
     "test": "vitest run",

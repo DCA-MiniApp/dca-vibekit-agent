@@ -225,16 +225,16 @@ export class DCATransactionExecutor {
       // Build transaction parameters
 
       // Estimate gas using the public client, then add a 20% buffer
-      console.log("esitmating gas")
+      this.log("esitmating gas...")
       const gasEstimate = await publicClient.estimateGas({
         account: this.userAddress,
         to: toAddress,
         value: txValue,
         data: txData,
       }); 
-      console.log("gas estimated", gasEstimate);
+      this.log("gas estimated.....");
       
-      this.log("gasEstimate", gasEstimate);
+      this.log("gasEstimate", gasEstimate.toString());
 
       const txParams: any = {
         to: toAddress,
@@ -259,9 +259,7 @@ export class DCATransactionExecutor {
         txParams.gasPrice = BigInt(tx.gasPrice);
       }
       
-      console.log("txParams before sending", txParams);
       this.log("txParams", txParams);
-      this.log("walletClient", walletClient);
       const txHash = await walletClient.sendTransaction(txParams);
 
       this.log(

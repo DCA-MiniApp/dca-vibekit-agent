@@ -13,6 +13,7 @@
  */
 
 import { PrismaClient, DcaPlan, DcaStatus } from '@prisma/client';
+import { TaskState } from '@google-a2a/types';
 import type { DCAContext } from '../context/types.js';
 import { executeDCASwapTool } from '../tools/executeDCASwap.js';
 
@@ -147,6 +148,7 @@ export class DCAScheduler {
         where: {
           status: 'ACTIVE',
           nextExecution: {
+            not: null,  // Only plans with scheduled execution (not completed)
             lte: new Date(),
           },
         },
@@ -234,14 +236,13 @@ export class DCAScheduler {
     return batches;
   }
 
-    /**
-   * 🎯 IMPROVED: Execute DCA plan using the SAME TOOL (no code duplication)
-   * This ensures consistency between user-initiated and scheduler-initiated swaps
+  /**
+   * 🎯 FIXED: Execute DCA plan using the SAME TOOL with proper Task status checking
    */
   private async executeDCAPlan(plan: DcaPlan): Promise<void> {
     const planId = plan.id;
     const userAddress = plan.userAddress;
-    
+
     console.log(`[Scheduler] 🔄 Executing DCA plan ${planId}: ${plan.amount} ${plan.fromToken} → ${plan.toToken} for ${userAddress}`);
 
     let lastError: Error | null = null;
@@ -278,13 +279,17 @@ export class DCAScheduler {
           toolContext as any
         );
 
-        // Check if tool execution was successful
-        if (toolResult.type === 'success') {
+        // 🔧 FIXED: Check Task status properly (was checking wrong property)
+        console.log(`[Scheduler] 🔍 Tool result status: ${toolResult.status.state}`);
+
+        if (toolResult.status.state === TaskState.Completed) {
           console.log(`[Scheduler] ✅ Plan ${planId} executed successfully via tool`);
-          console.log(`[Scheduler]    Result: ${toolResult.result?.message || 'Swap completed'}`);
+          console.log(`[Scheduler]    Result: ${toolResult.status.message.parts[0]?.text || 'Swap completed'}`);
           return; // Success, exit retry loop
         } else {
-          throw new Error(`Tool execution failed: ${toolResult.result?.error || 'Unknown error'}`);
+          // Extract error message from failed task
+          const errorMessage = toolResult.status.message.parts[0]?.text || 'Unknown error';
+          throw new Error(`Tool execution failed: ${errorMessage}`);
         }
 
       } catch (error) {
@@ -300,7 +305,7 @@ export class DCAScheduler {
 
     // All retries failed
     console.error(`[Scheduler] 💥 Plan ${planId} failed after ${this.config.retryAttempts} attempts: ${lastError?.message}`);
-    
+
     // Note: The tool already records failed executions in the database,
     // so we don't need to duplicate that logic here
     throw lastError || new Error('Execution failed');

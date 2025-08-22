@@ -19,7 +19,7 @@ model DcaPlan {
   intervalMinutes  Int      @map("interval_minutes")
   durationWeeks    Int      @map("duration_weeks")
   status           DcaStatus @default(ACTIVE)
-  nextExecution    DateTime @map("next_execution") @db.Timestamptz
+  nextExecution    DateTime? @map("next_execution") @db.Timestamptz
   executionCount   Int      @default(0) @map("execution_count")
   totalExecutions  Int      @map("total_executions")
   slippage         Decimal  @default(0.005) @db.Decimal(5, 4)

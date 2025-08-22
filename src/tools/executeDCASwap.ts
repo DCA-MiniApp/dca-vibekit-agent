@@ -5,8 +5,6 @@
  * 1. Getting swap plans from Ember MCP
  * 2. Executing the transaction using the private key
  * 3. Recording the execution in the database
- * 
- * This tool will be used by the scheduler in Phase 5
  */
 
 import type { VibkitToolDefinition } from 'arbitrum-vibekit-core';
@@ -15,7 +13,7 @@ import { z } from 'zod';
 import type { DCAContext, TokenInfo } from '../context/types.js';
 import { formatUnits, parseUnits } from 'viem';
 
-// Proper response schema based on real Ember MCP responses
+// Response schema for Ember MCP - matches the official ember-api schema
 const SwapTokensResponseSchema = z.object({
   status: z.string(),
   orderType: z.string(),
@@ -56,19 +54,19 @@ type SwapTokensResponse = z.infer<typeof SwapTokensResponseSchema>;
 function findTokenDetail(
   tokenSymbol: string,
   tokenMap: Record<string, TokenInfo[]>,
-  chainId: number = 42161 // Default to Arbitrum
+  chainId: number = 42161
 ): TokenInfo | null {
   const upperSymbol = tokenSymbol.toUpperCase();
-
-  // Look for exact symbol match on the specified chain
   const tokens = tokenMap[upperSymbol];
-  if (!tokens || tokens.length === 0) {
-    return null;
-  }
+  if (!tokens || tokens.length === 0) return null;
+  return tokens.find(token => token.chainId === chainId) || null;
+}
 
-  // Find token on the correct chain
-  const tokenOnChain = tokens.find(token => token.chainId === chainId);
-  return tokenOnChain || null;
+/**
+ * Safe conversion for decimal amounts to avoid BigInt errors
+ */
+function safeToHuman(value: string): string {
+  return value.replace(/^\+/, '').trim();
 }
 
 const ExecuteDCASwapParams = z.object({
@@ -88,54 +86,25 @@ export const executeDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParam
     try {
       console.log(`[DCA Swap] 🔄 Executing swap for plan ${args.planId}: ${args.amount} ${args.fromToken} → ${args.toToken}`);
 
-      // Check if transaction execution is enabled
+      // Validate requirements
       if (!context.custom.executeTransaction) {
         throw new Error('Transaction execution not enabled - PRIVATE_KEY not configured');
       }
-
-      // Check if Ember MCP client is available
-
-      console.log('context.custom.mcpClient', context.custom.mcpClient ? 'exists' : 'does not exist');
       if (!context.custom.mcpClient) {
         throw new Error('Ember MCP client not available');
       }
 
-      // 🎯 STEP 1: Resolve token symbols to addresses and chain IDs
-      console.log('[DCA Swap] 📍 Resolving token details...');
-      const arbitrumChainId = 42161;
-
-      const fromTokenDetail = findTokenDetail(args.fromToken, context.custom.tokenMap, arbitrumChainId);
-      if (!fromTokenDetail) {
-        throw new Error(`Could not resolve fromToken "${args.fromToken}" on Arbitrum (chainId: ${arbitrumChainId})`);
-      }
-
-      const toTokenDetail = findTokenDetail(args.toToken, context.custom.tokenMap, arbitrumChainId);
-      if (!toTokenDetail) {
-        throw new Error(`Could not resolve toToken "${args.toToken}" on Arbitrum (chainId: ${arbitrumChainId})`);
-      }
-
-      console.log(`[DCA Swap] ✅ From Token: ${fromTokenDetail.symbol} (${fromTokenDetail.address})`);
-      console.log(`[DCA Swap] ✅ To Token: ${toTokenDetail.symbol} (${toTokenDetail.address})`);
-
-      // 🎯 STEP 2: Convert human amount to atomic units
-      const atomicAmount = parseUnits(args.amount, fromTokenDetail.decimals);
-      console.log(`[DCA Swap] 💰 Amount: ${args.amount} ${args.fromToken} = ${atomicAmount.toString()} atomic units`);
-
-      // 🎯 STEP 3: Call Ember MCP with CORRECT format
-      console.log('[DCA Swap] 🤝 Getting swap plan from Ember MCP...');
-      // console.log("context.custom.mcpClient.listTools()", await context.custom.mcpClient.listTools());
-      // 🔥 CRITICAL: Check if we should use executor address instead of user address
-      const executorAddress = context.custom.executeTransaction?.executorAddress;
-      console.log("🔍 Address Analysis:");
-      console.log("  - User Address (recipient):", args.userAddress);
-      console.log("  - Executor Address (private key):", executorAddress);
-      console.log("  - Using executor as source: tokens & ETH must be in executor wallet");
+      // Resolve tokens
+      const fromTokenDetail = findTokenDetail(args.fromToken, context.custom.tokenMap);
+      const toTokenDetail = findTokenDetail(args.toToken, context.custom.tokenMap);
       
-      console.log("📊 Swap Parameters:");
-      console.log("  - Slippage:", args.slippage);
-      console.log("  - From Token:", fromTokenDetail.chainId, fromTokenDetail.address);
-      console.log("  - To Token:", toTokenDetail.chainId, toTokenDetail.address);
-      console.log("  - Amount (atomic):", atomicAmount.toString());
+      if (!fromTokenDetail) throw new Error(`Could not resolve fromToken "${args.fromToken}"`);
+      if (!toTokenDetail) throw new Error(`Could not resolve toToken "${args.toToken}"`);
+
+      console.log(`[DCA Swap] ✅ From: ${fromTokenDetail.symbol} → To: ${toTokenDetail.symbol}`);
+
+      // Get swap plan from Ember MCP
+      const atomicAmount = parseUnits(args.amount, fromTokenDetail.decimals);
       const swapResult = await context.custom.mcpClient.callTool({
         name: 'swapTokens',
         arguments: {
@@ -154,117 +123,55 @@ export const executeDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParam
         },
       });
 
-      console.log("swapResult normally", swapResult.structuredContent);
       if (swapResult.isError) {
-        console.error('[DCA Swap] ❌ Ember MCP swap error:', swapResult.content);
         throw new Error(`Failed to get swap plan: ${swapResult.content}`);
       }
 
-      // 🎯 STEP 4: Parse response with proper schema validation
-      console.log('[DCA Swap] 📊 Parsing Ember MCP response...');
-      let parsedResponse: SwapTokensResponse;
-
-      try {
-        parsedResponse = parseMcpToolResponsePayload(swapResult, SwapTokensResponseSchema);
-      } catch (parseError) {
-        console.error('[DCA Swap] ❌ Failed to parse MCP response:', parseError);
-        console.error('[DCA Swap] Raw response content:', JSON.stringify(swapResult.content, null, 2));
-        console.error('[DCA Swap] Raw response structuredContent:', JSON.stringify(swapResult.structuredContent, null, 2));
-        throw new Error(`Invalid response format from Ember MCP: ${parseError}`);
-      }
-
-      console.log("[DCA Swap] 📊 Parsed response:", JSON.stringify(parsedResponse, null, 2));
+      // Parse and execute - NOW PROPERLY TYPED
+      const parsedResponse: SwapTokensResponse = parseMcpToolResponsePayload(swapResult, SwapTokensResponseSchema);
       const { transactions, estimation } = parsedResponse;
 
       if (!transactions || transactions.length === 0) {
         throw new Error('No transactions received from swap plan');
       }
 
-      console.log(`[DCA Swap] ✅ Received ${transactions.length} transaction(s) to execute`);
-      
-      // Log each transaction for debugging
-      transactions.forEach((tx, index) => {
-        console.log(`[DCA Swap] 📋 Transaction ${index + 1}:`, {
-          to: tx.to,
-          value: tx.value || '0',
-          dataPrefix: tx.data ? tx.data.substring(0, 10) + '...' : 'no data',
-          dataLength: tx.data ? tx.data.length : 0,
-          chainId: tx.chainId,
-          gas: tx.gas || 'not set',
-          gasPrice: tx.gasPrice || 'not set',
-          maxFeePerGas: tx.maxFeePerGas || 'not set',
-          maxPriorityFeePerGas: tx.maxPriorityFeePerGas || 'not set',
-        });
-      });
+      console.log(`[DCA Swap] ✅ Executing ${transactions.length} transaction(s)`);
 
-      // 🎯 STEP 5: Execute the swap transaction
+      // Execute transactions
       const executionResult = await context.custom.executeTransaction.executeDCASwap(
         args.planId,
         transactions
       );
 
-      console.log(`[DCA Swap] ✅ Transaction executed successfully: ${executionResult.txHash}`);
+      console.log(`[DCA Swap] ✅ Transaction executed: ${executionResult.txHash}`);
 
-      // 🎯 STEP 6: Calculate proper amounts and exchange rates
-      const fromAmountHuman = args.amount; // Original human input
-      const fromAmountAtomic = atomicAmount.toString();
-
-      // Use estimation from Ember MCP if available, otherwise use execution result
-      let toAmountAtomic = '0';
+      // Calculate amounts - NOW WITH PROPER TYPE SAFETY
+      const fromAmountHuman = args.amount;
       let toAmountHuman = '0';
       let exchangeRate = '0';
 
       if (estimation) {
-        // quoteTokenDelta is the amount we're receiving (in atomic units)
-        toAmountAtomic = estimation.quoteTokenDelta;
-        exchangeRate = estimation.effectivePrice;
-
-        // Convert atomic amount to human-readable
-        toAmountHuman = formatUnits(BigInt(toAmountAtomic), toTokenDetail.decimals);
-
-        console.log(`[DCA Swap] 📈 Estimation: ${toAmountAtomic} atomic units = ${toAmountHuman} ${args.toToken}`);
-        console.log(`[DCA Swap] 📈 Effective price: ${exchangeRate}`);
-      } else {
-        // Fallback: try to extract from execution result
-        toAmountAtomic = executionResult.toAmount || '0';
-
-        if (toAmountAtomic !== '0') {
-          toAmountHuman = formatUnits(BigInt(toAmountAtomic), toTokenDetail.decimals);
-        }
-
-        // Calculate exchange rate manually if not provided
-        if (toAmountAtomic !== '0' && fromAmountAtomic !== '0') {
-          const fromAmountBigInt = BigInt(fromAmountAtomic);
-          const toAmountBigInt = BigInt(toAmountAtomic);
-
-          // Calculate price as toAmount/fromAmount (adjusted for decimals)
-          const fromAmountFloat = parseFloat(formatUnits(fromAmountBigInt, fromTokenDetail.decimals));
-          const toAmountFloat = parseFloat(formatUnits(toAmountBigInt, toTokenDetail.decimals));
-
-          exchangeRate = toAmountFloat > 0 ? (toAmountFloat / fromAmountFloat).toString() : '0';
-        }
-
-        console.log(`[DCA Swap] 📈 Fallback calculation: ${toAmountAtomic} atomic units = ${toAmountHuman} ${args.toToken}`);
+        toAmountHuman = safeToHuman(estimation.quoteTokenDelta);
+        exchangeRate = safeToHuman(estimation.effectivePrice);
+        console.log(`[DCA Swap] 📈 Result: ${toAmountHuman} ${args.toToken} at rate ${exchangeRate}`);
       }
 
-      console.log(`[DCA Swap] 💹 Final amounts: ${fromAmountHuman} ${args.fromToken} → ${toAmountHuman} ${args.toToken}`);
-      console.log(`[DCA Swap] 💹 Exchange rate: ${exchangeRate}`);
-
-      // 🎯 STEP 7: Record execution in database
-      console.log('[DCA Swap] 💾 Recording execution in database...');
-      await context.custom.prisma.executionHistory.create({
+      // Record in database
+      const executionRecord = await context.custom.prisma.executionHistory.create({
         data: {
           planId: args.planId,
-          fromAmount: fromAmountHuman, // Human-readable amount
-          toAmount: toAmountHuman, // Human-readable amount  
+          fromAmount: fromAmountHuman,
+          toAmount: toAmountHuman,
           exchangeRate: exchangeRate,
-          gasFee: executionResult.gasUsed.toString(), // Convert BigInt to string
+          gasFee: executionResult.gasUsed.toString(),
           txHash: executionResult.txHash,
           status: 'SUCCESS',
         },
       });
 
-      // 🎯 STEP 8: Update plan execution count and next execution time
+      console.log(`[DCA Swap] 📝 Success recorded in database: ${executionRecord.id}`);
+
+      // Update plan
       const plan = await context.custom.prisma.dcaPlan.findUnique({
         where: { id: args.planId },
       });
@@ -278,17 +185,13 @@ export const executeDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParam
           where: { id: args.planId },
           data: {
             executionCount: newExecutionCount,
-            nextExecution: isCompleted ? undefined : nextExecution,
+            nextExecution: isCompleted ? null : nextExecution,
             status: isCompleted ? 'COMPLETED' : 'ACTIVE',
             updatedAt: new Date(),
           },
         });
 
         console.log(`[DCA Swap] 📊 Plan updated: ${newExecutionCount}/${plan.totalExecutions} executions`);
-
-        if (isCompleted) {
-          console.log(`[DCA Swap] 🎉 Plan ${args.planId} completed all executions!`);
-        }
       }
 
       return createSuccessTask(
@@ -300,12 +203,12 @@ export const executeDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParam
     } catch (error) {
       console.error('[DCA Swap] ❌ Execution failed:', error);
 
-      // Record failed execution in database
+      // Record failure
       try {
         await context.custom.prisma.executionHistory.create({
           data: {
             planId: args.planId,
-            fromAmount: args.amount, // Human-readable amount
+            fromAmount: args.amount,
             toAmount: '0',
             exchangeRate: '0',
             gasFee: null,
@@ -314,10 +217,8 @@ export const executeDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParam
             errorMessage: error instanceof Error ? error.message : String(error),
           },
         });
-
-        console.log('[DCA Swap] 📝 Failed execution recorded in database');
       } catch (dbError) {
-        console.error('[DCA Swap] ❌ Failed to record error in database:', dbError);
+        console.error('[DCA Swap] ❌ Database error:', dbError);
       }
 
       return createErrorTask(

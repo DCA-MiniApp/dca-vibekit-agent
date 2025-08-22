@@ -66,7 +66,7 @@ export interface DCAPlanResponse {
   intervalMinutes: number;
   durationWeeks: number;
   status: 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'CANCELLED';
-  nextExecution: string;
+  nextExecution: string | null;
   executionCount: number;
   totalExecutions: number;
   slippage: string;
