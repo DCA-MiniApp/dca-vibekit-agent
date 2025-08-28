@@ -44,7 +44,7 @@ export class DCAScheduler {
   constructor(context: DCAContext, config: Partial<SchedulerConfig> = {}) {
     this.context = context;
     this.config = {
-      intervalSeconds: parseInt(process.env.SCHEDULER_INTERVAL_SECONDS || '60', 10),
+      intervalSeconds: parseInt(process.env.SCHEDULER_INTERVAL_SECONDS || '600', 10),
       maxConcurrentExecutions: parseInt(process.env.MAX_CONCURRENT_EXECUTIONS || '50', 10),
       retryAttempts: 3,
       retryDelayMs: 5000,

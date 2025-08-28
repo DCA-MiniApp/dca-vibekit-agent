@@ -70,6 +70,24 @@ async function startAgent() {
 
     // Start the MCP agent
     await agent.start(PORT, async deps => {
+
+      console.log('🔥🔥🔥 [AGENT] Agent started - ready to receive messages');
+      console.log('🔥🔥🔥 [AGENT] Available skills:', agentConfig.skills.map(s => s.name));
+      console.log('🔥🔥🔥 [AGENT] Available tools:', agentConfig.skills.flatMap(s => s.tools.map(t => t.name)));
+
+        
+      // Add middleware to log ALL incoming HTTP requests to /messages
+      // const originalApp = agent.app;
+      // if (originalApp) {
+      //   originalApp.use('/messages', (req: any, res: any, next: any) => {
+      //     console.log('🔥🔥🔥 [TRANSPORT] /messages endpoint hit!');
+      //     console.log('🔥🔥🔥 [TRANSPORT] Method:', req.method);
+      //     console.log('🔥🔥🔥 [TRANSPORT] Headers:', req.headers);
+      //     console.log('🔥🔥🔥 [TRANSPORT] Query:', req.query);
+      //     console.log('🔥🔥🔥 [TRANSPORT] Body preview:', JSON.stringify(req.body)?.slice(0, 200));
+      //     next();
+      //   });
+      // }
       // Create manual MCP client for Ember endpoint (following liquidation prevention agent pattern)
       let emberMcpClient: Client | null = null;
 
@@ -83,8 +101,9 @@ async function startAgent() {
         );
 
         const transport = new StreamableHTTPClientTransport(new URL(emberEndpoint));
+        // await emberMcpClient.connect(transport);
         // Add connection timeout similar to other agents
-        const timeoutMs = parseInt(process.env.MCP_CONNECTION_TIMEOUT || '90000', 10);
+        const timeoutMs = parseInt(process.env.MCP_CONNECTION_TIMEOUT || '60000', 10);
         const connectionPromise = emberMcpClient.connect(transport);
         const timeoutPromise = new Promise((_, reject) =>
           setTimeout(() => reject(new Error(`MCP connection timeout after ${timeoutMs}ms`)), timeoutMs)

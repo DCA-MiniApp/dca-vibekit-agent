@@ -214,7 +214,7 @@ export async function contextProvider(
         }
       });
       
-      console.log('🚀 Arbitrum tokens only:', arbitrumTokens);
+      // console.log('🚀 Arbitrum tokens only:', arbitrumTokens);
       console.log(`📊 Total Arbitrum tokens: ${Object.keys(arbitrumTokens).length} symbols`);
       
       // Optional: Log first 10 Arbitrum tokens for quick reference

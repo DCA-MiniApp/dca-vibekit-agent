@@ -38,6 +38,10 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any> = {
       .describe('Slippage tolerance in percentage (default: 0.5%)'),
   }),
   execute: async ({ userAddress, fromToken, toToken, amount, intervalMinutes, durationWeeks, slippage }) => {
+
+    console.log('🔥🔥🔥 [TOOL] createDCAPlan CALLED!');
+    console.log('🔥🔥🔥 [TOOL] Args:', { userAddress, fromToken, toToken, amount, intervalMinutes, durationWeeks, slippage });
+
     try {
       const API_PORT = parseInt(process.env.API_PORT || '3002', 10);
       const response = await fetch(`http://localhost:${API_PORT}/api/dca/create`, {
