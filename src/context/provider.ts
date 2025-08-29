@@ -133,21 +133,21 @@ async function loadTokenMap(mcpClient: any): Promise<Record<string, TokenInfo[]>
 
     console.log('[Context] 📊 Parsing tokens response...');
     const tokensResponse = parseMcpToolResponsePayload(tokensResult, GetTokensResponseSchema) as z.infer<typeof GetTokensResponseSchema>;
-    
+
     if (!tokensResponse.tokens || tokensResponse.tokens.length === 0) {
       throw new Error('No tokens received from Ember MCP getTokens');
     }
 
     console.log(`[Context] ✅ Received ${tokensResponse.tokens.length} tokens from Ember MCP`);
     const tokenMap = populateTokenMap(tokensResponse.tokens);
-    
+
     // Debug: Log first 10 available Arbitrum tokens only
     const arbitrumSymbols = Object.entries(tokenMap)
       .filter(([_, tokens]) => tokens.some(token => token.chainId === 42161))
       .map(([symbol, _]) => symbol)
       .slice(0, 10);
     console.log('[Context] 📋 First 10 available Arbitrum tokens:', arbitrumSymbols.join(', '));
-    
+
     return tokenMap;
   };
 
@@ -206,20 +206,35 @@ export async function contextProvider(
       console.log('mcpConnected in provider', mcpConnected);
       // Don't log the full tokenMap - it's too verbose
       // console.log('tokenMap in provider', tokenMap);
-      
+
+      if (tokenMap['USDC']) {
+        const usdcArbitrumTokens = tokenMap['USDC'].filter(token => token.chainId === 42161);
+        if (usdcArbitrumTokens.length > 0) {
+          console.log('💰 USDC on Arbitrum from tokenMap:');
+          usdcArbitrumTokens.forEach(token => {
+            console.log(`   ${token.symbol}:  ${token.chainId}  ${token.decimals} ${token.address} (${token.name})`);
+          });
+        } else {
+          console.log('⚠️ USDC exists but not on Arbitrum in tokenMap');
+        }
+      } else {
+        console.log('⚠️ USDC not found in tokenMap at all');
+      }
+
+
       // Filter and console only Arbitrum tokens
       const arbitrumTokens: Record<string, TokenInfo[]> = {};
-      
+
       Object.entries(tokenMap).forEach(([symbol, tokens]) => {
         const arbitrumTokenList = tokens.filter(token => token.chainId === 42161);
         if (arbitrumTokenList.length > 0) {
           arbitrumTokens[symbol] = arbitrumTokenList;
         }
       });
-      
+
       // console.log('🚀 Arbitrum tokens only:', arbitrumTokens);
       console.log(`📊 Total Arbitrum tokens: ${Object.keys(arbitrumTokens).length} symbols`);
-      
+
       // Optional: Log first 10 Arbitrum tokens for quick reference
       const first10ArbitrumTokens = Object.entries(arbitrumTokens).slice(0, 10);
       console.log('🔍 First 10 Arbitrum tokens:');
@@ -228,7 +243,7 @@ export async function contextProvider(
           console.log(`   ${symbol}: ${token.address} (${token.name})`);
         });
       });
-      
+
     } catch (error) {
       console.error('[Context] Failed to load token map from MCP client:', error);
       console.warn('[Context] Using fallback token map');
@@ -303,7 +318,7 @@ export async function contextProvider(
   console.log(`  - Database: ${dbConnected ? '✅ connected' : '❌ connection failed'}`);
   console.log(`  - MCP Connected: ${mcpConnected ? '✅' : '❌'}`);
   // Count only Arbitrum tokens
-  const arbitrumTokenCount = Object.values(tokenMap).reduce((count, tokens) => 
+  const arbitrumTokenCount = Object.values(tokenMap).reduce((count, tokens) =>
     count + tokens.filter(token => token.chainId === 42161).length, 0
   );
   const arbitrumSymbolCount = Object.entries(tokenMap)

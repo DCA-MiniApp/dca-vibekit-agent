@@ -5,7 +5,7 @@ import { z } from 'zod';
 /**
  * Tool to create a new DCA plan
  */
-export const createDCAPlanTool: VibkitToolDefinition<any, any> = {
+export const createDCAPlanTool: VibkitToolDefinition<any, any, any, any> = {
   name: 'createDCAPlan',
   description: 'Create a new Dollar Cost Averaging (DCA) plan for automated investment',
   parameters: z.object({
@@ -24,20 +24,20 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any> = {
       .regex(/^\d+(\.\d+)?$/, 'Amount must be a valid number')
       .describe('Investment amount per execution'),
     intervalMinutes: z.number()
-      .min(5)
+      .min(2)
       .max(43200) // Max 30 days
       .describe('Execution interval in minutes'),
     durationWeeks: z.number()
-      .min(1)
-      .max(260) // Max 5 years
+      // .min(1)
+      // .max(260) // Max 5 years
       .describe('Total investment duration in weeks'),
     slippage: z.string()
       .regex(/^\d+(\.\d+)?$/, 'Slippage must be a valid number')
       .optional()
-      .default('0.5')
-      .describe('Slippage tolerance in percentage (default: 0.5%)'),
+      .default('200')
+      .describe('Slippage tolerance in percentage (default: 2%)'),
   }),
-  execute: async ({ userAddress, fromToken, toToken, amount, intervalMinutes, durationWeeks, slippage }) => {
+  execute: async ({ userAddress, fromToken, toToken, amount, intervalMinutes, durationWeeks, slippage }, context) => {
 
     console.log('🔥🔥🔥 [TOOL] createDCAPlan CALLED!');
     console.log('🔥🔥🔥 [TOOL] Args:', { userAddress, fromToken, toToken, amount, intervalMinutes, durationWeeks, slippage });
@@ -69,10 +69,39 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any> = {
         );
       }
 
+      // After creating the plan, execute the first swap immediately
+      console.log('🔥 [TOOL] Plan created successfully, executing first swap immediately...');
+      
+      // Import and call the execute tool directly
+      const { executeDCASwapTool } = await import('./executeDCASwap.js');
+      
+      // Create a minimal context for the execute tool (will be passed through)
+      const executeResult = await executeDCASwapTool.execute(
+        {
+          planId: result.data.id,
+          fromToken,
+          toToken,
+          amount,
+          userAddress,
+          slippage: slippage || '200',
+        },
+        // Pass through the context from the agent
+        context
+      );
+
+      if (executeResult.status.state === 'error') {
+        console.log('🔥 [TOOL] First execution failed, but plan was created:', executeResult.status.message);
+        return createSuccessTask(
+          'createDCAPlan',
+          [],
+          `DCA plan created: ${amount} ${fromToken} → ${toToken} every ${intervalMinutes} minutes for ${durationWeeks} weeks. First execution failed: ${executeResult.status.message}`
+        );
+      }
+
       return createSuccessTask(
         'createDCAPlan',
         [],
-        `Successfully created DCA plan: ${amount} ${fromToken} → ${toToken} every ${intervalMinutes} minutes for ${durationWeeks} weeks`
+        `Successfully created DCA plan and executed first swap: ${amount} ${fromToken} → ${toToken} every ${intervalMinutes} minutes for ${durationWeeks} weeks`
       );
     } catch (error) {
       return createErrorTask(

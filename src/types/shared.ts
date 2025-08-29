@@ -17,18 +17,18 @@ export const CreateDCAPlanSchema = z.object({
     .regex(/^\d+(\.\d+)?$/, 'Amount must be a valid number')
     .describe('Investment amount per execution'),
   intervalMinutes: z.number()
-    .min(1)
+    .min(2)
     .max(43200) // Max 30 days
     .describe('Execution interval in minutes'),
   durationWeeks: z.number()
-    .min(1)
-    .max(260) // Max 5 years
+    // .min(1)
+    // .max(260) // Max 5 years
     .describe('Total investment duration in weeks'),
   slippage: z.string()
     .regex(/^\d+(\.\d+)?$/, 'Slippage must be a valid number')
     .optional()
-    .default('0.5')
-    .describe('Slippage tolerance in percentage (default: 0.5%)'),
+    .default('200')
+    .describe('Slippage tolerance in percentage (default: 2%)'),
 });
 
 export type CreateDCAPlanRequest = z.infer<typeof CreateDCAPlanSchema>;
