@@ -188,9 +188,12 @@ export async function contextProvider(
   }
 
   const { mcpClients, llmModel } = deps;
+  console.log("MCP client details:",mcpClients);
+  console.log("LLM Model details:",llmModel);
 
   // Get the Ember MCP client (should be connected in index.ts)
   const emberMcpClient = mcpClients['ember-mcp-tool-server'] || null;
+  console.log('[Context] Ember MCP client:', emberMcpClient ? '✅ connected' : '❌ not available'); 
   // console.log('emberMcpClient in provider', emberMcpClient);
   let tokenMap: Record<string, TokenInfo[]> = {};
   let mcpConnected = false;
@@ -291,6 +294,9 @@ export async function contextProvider(
       transactionExecutionEnabled,
     },
   };
+
+  console.log('[Context] DCA Agent context initialized successfully');
+  console.log("Context details:", context);
 
   // Log context summary
   console.log('[Context] DCA Agent context loaded:');
