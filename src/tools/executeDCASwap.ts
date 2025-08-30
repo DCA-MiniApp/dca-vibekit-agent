@@ -323,7 +323,7 @@ export const executeDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParam
       return createSuccessTask(
         'executeDCASwap',
         [],
-        `DCA swap executed: ${fromAmountHuman} ${args.fromToken} → ${toAmountHuman} ${args.toToken} (tx: ${executionResult.txHash})`
+        `🎉🎉 DCA swap executed: ${fromAmountHuman} ${args.fromToken} → ${toAmountHuman} ${args.toToken} (tx: ${executionResult.txHash})`
       );
 
     } catch (error) {

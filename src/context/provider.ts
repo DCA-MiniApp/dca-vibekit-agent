@@ -204,21 +204,6 @@ export async function contextProvider(
       // Don't log the full tokenMap - it's too verbose
       // console.log('tokenMap in provider', tokenMap);
 
-      if (tokenMap['USDC']) {
-        const usdcArbitrumTokens = tokenMap['USDC'].filter(token => token.chainId === 42161);
-        if (usdcArbitrumTokens.length > 0) {
-          console.log('💰 USDC on Arbitrum from tokenMap:');
-          usdcArbitrumTokens.forEach(token => {
-            console.log(`   ${token.symbol}:  ${token.chainId}  ${token.decimals} ${token.address} (${token.name})`);
-          });
-        } else {
-          console.log('⚠️ USDC exists but not on Arbitrum in tokenMap');
-        }
-      } else {
-        console.log('⚠️ USDC not found in tokenMap at all');
-      }
-
-
       // Filter and console only Arbitrum tokens
       const arbitrumTokens: Record<string, TokenInfo[]> = {};
 

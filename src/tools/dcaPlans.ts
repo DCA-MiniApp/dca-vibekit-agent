@@ -34,7 +34,7 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any, any, any> = {
     slippage: z.string()
       .regex(/^\d+(\.\d+)?$/, 'Slippage must be a valid number')
       .optional()
-      .default('200')
+      .default('2')
       .describe('Slippage tolerance in percentage (default: 2%)'),
   }),
   execute: async ({ userAddress, fromToken, toToken, amount, intervalMinutes, durationWeeks, slippage }, context) => {
@@ -56,7 +56,7 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any, any, any> = {
           amount,
           intervalMinutes,
           durationWeeks,
-          slippage: slippage || '0.5',
+          slippage: slippage || '2',
         }),
       });
 
@@ -83,7 +83,7 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any, any, any> = {
           toToken,
           amount,
           userAddress,
-          slippage: slippage || '200',
+          slippage: (typeof slippage === 'string' ? (parseFloat(slippage) / 100).toString() : (slippage / 100).toString()) || '2',
         },
         // Pass through the context from the agent
         context
@@ -101,7 +101,7 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any, any, any> = {
       return createSuccessTask(
         'createDCAPlan',
         [],
-        `Successfully created DCA plan and executed first swap: ${amount} ${fromToken} → ${toToken} every ${intervalMinutes} minutes for ${durationWeeks} weeks`
+        `🎉🎉 Successfully created DCA plan and executed first swap: ${amount} ${fromToken} → ${toToken} every ${intervalMinutes} minutes for ${durationWeeks} weeks`
       );
     } catch (error) {
       return createErrorTask(
