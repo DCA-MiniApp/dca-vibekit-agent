@@ -25,7 +25,7 @@ router.post('/create', async (req, res) => {
     
     // Convert amount and slippage to Decimal
     const amount = validatedData.amount;
-    const slippage = parseFloat(validatedData.slippage || '0.5') / 100; // Convert percentage to decimal
+    const slippage = parseFloat(validatedData.slippage || '200') / 100; // Convert percentage to decimal
     
     // Create DCA plan in database
     const dcaPlan = await prisma.dcaPlan.create({
