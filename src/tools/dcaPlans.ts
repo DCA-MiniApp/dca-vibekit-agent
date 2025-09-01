@@ -75,6 +75,13 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any, any, any> = {
       // Import and call the execute tool directly
       const { executeDCASwapTool } = await import('./executeDCASwap.js');
       
+      // Ensure minimum slippage of 0.3%
+      let finalSlippage = slippage || '2';
+      const slippageValue = parseFloat(finalSlippage);
+      if (isNaN(slippageValue) || slippageValue < 0.3) {
+        finalSlippage = '0.3';
+      }
+      
       // Create a minimal context for the execute tool (will be passed through)
       const executeResult = await executeDCASwapTool.execute(
         {
@@ -83,7 +90,7 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any, any, any> = {
           toToken,
           amount,
           userAddress,
-          slippage: (typeof slippage === 'string' ? (parseFloat(slippage) / 100).toString() : (slippage / 100).toString()) || '2',
+          slippage: finalSlippage, // Pass slippage as-is without division
         },
         // Pass through the context from the agent
         context

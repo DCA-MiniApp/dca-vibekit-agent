@@ -27,7 +27,7 @@ export const CreateDCAPlanSchema = z.object({
   slippage: z.string()
     .regex(/^\d+(\.\d+)?$/, 'Slippage must be a valid number')
     .optional()
-    .default('200')
+    .default('2')
     .describe('Slippage tolerance in percentage (default: 2%)'),
 });
 

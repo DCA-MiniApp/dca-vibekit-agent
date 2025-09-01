@@ -22,7 +22,7 @@ model DcaPlan {
   nextExecution    DateTime? @map("next_execution") @db.Timestamptz
   executionCount   Int      @default(0) @map("execution_count")
   totalExecutions  Int      @map("total_executions")
-  slippage         Decimal  @default(0.005) @db.Decimal(5, 4)
+  slippage         Decimal  @default(2.0) @db.Decimal(5, 2)
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
