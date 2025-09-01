@@ -229,6 +229,83 @@ router.put('/plans/:planId', async (req, res) => {
   }
 });
 
+// Get all execution history for a user (across all plans)
+router.get('/user/:userAddress/history', async (req, res) => {
+  try {
+    const { userAddress } = req.params;
+    const { limit = '50', offset = '0' } = req.query;
+    
+    // Validate Ethereum address format
+    if (!/^0x[a-fA-F0-9]{40}$/.test(userAddress)) {
+      const response: ApiResponse = {
+        success: false,
+        error: 'Invalid Address',
+        message: 'Invalid Ethereum address format',
+      };
+      return res.status(400).json(response);
+    }
+    
+    // Get execution history for all user's plans
+    const executions = await prisma.executionHistory.findMany({
+      where: {
+        plan: {
+          userAddress: userAddress,
+        }
+      },
+      include: {
+        plan: {
+          select: {
+            id: true,
+            fromToken: true,
+            toToken: true,
+            userAddress: true,
+          }
+        }
+      },
+      orderBy: { executedAt: 'desc' },
+      take: parseInt(limit as string),
+      skip: parseInt(offset as string),
+    });
+    
+    const formattedExecutions = executions.map(execution => ({
+      id: execution.id,
+      planId: execution.planId,
+      executedAt: execution.executedAt.toISOString(),
+      fromAmount: execution.fromAmount.toString(),
+      toAmount: execution.toAmount.toString(),
+      exchangeRate: execution.exchangeRate.toString(),
+      gasFee: execution.gasFee?.toString() || null,
+      txHash: execution.txHash,
+      status: execution.status,
+      errorMessage: execution.errorMessage,
+      // Include plan details for token pair display
+      plan: {
+        id: execution.plan.id,
+        fromToken: execution.plan.fromToken,
+        toToken: execution.plan.toToken,
+      }
+    }));
+    
+    const response: ApiResponse = {
+      success: true,
+      data: formattedExecutions,
+      message: `Found ${formattedExecutions.length} executions`,
+    };
+    
+    res.json(response);
+    
+  } catch (error) {
+    console.error('Error fetching user execution history:', error);
+    
+    const response: ApiResponse = {
+      success: false,
+      error: 'Internal Server Error',
+      message: 'Failed to fetch execution history',
+    };
+    res.status(500).json(response);
+  }
+});
+
 // Get execution history for a plan
 router.get('/history/:planId', async (req, res) => {
   try {
