@@ -188,8 +188,8 @@ export async function contextProvider(
   }
 
   const { mcpClients, llmModel } = deps;
-  console.log("MCP client details:",mcpClients);
-  console.log("LLM Model details:",llmModel);
+  // console.log("MCP client details:",mcpClients);
+  // console.log("LLM Model details:",llmModel);
 
   // Get the Ember MCP client (should be connected in index.ts)
   const emberMcpClient = mcpClients['ember-mcp-tool-server'] || null;
@@ -296,7 +296,7 @@ export async function contextProvider(
   };
 
   console.log('[Context] DCA Agent context initialized successfully');
-  console.log("Context details:", context);
+  // console.log("Context details:", context);
 
   // Log context summary
   console.log('[Context] DCA Agent context loaded:');

@@ -1,10 +1,10 @@
 /**
  * Execute DCA Swap Tool
  * 
- * This tool handles the actual execution of DCA swaps by:
+ * This tool handles the preparation of DCA swaps by:
  * 1. Getting swap plans from Ember MCP
- * 2. Executing the transaction using the private key
- * 3. Recording the execution in the database
+ * 2. Preparing transactions for execution via hooks
+ * 3. Returning transaction data for secure signing
  */
 
 import type { VibkitToolDefinition } from 'arbitrum-vibekit-core';
@@ -13,6 +13,9 @@ import { z } from 'zod';
 import type { DCAContext, TokenInfo } from '../context/types.js';
 import { formatUnits, parseUnits, type Address, createPublicClient, createWalletClient, http, erc20Abi } from 'viem';
 import { arbitrum } from 'viem/chains';
+
+import { withHooks, transactionSigningAfterHook, transactionValidationBeforeHook } from '../hooks/index.js';
+
 
 // Response schema for Ember MCP - matches the official ember-api schema
 const SwapTokensResponseSchema = z.object({
@@ -98,6 +101,7 @@ async function handleTokenApprovalsAndTransfer(
   //console all details of fromtoken
 
   console.log("From token details:", fromTokenDetail);
+  // Use token's actual decimals for all tokens
   let atomicAmount = parseUnits(amount, fromTokenDetail.decimals);
   if (fromTokenDetail.address == "0xaf88d065e77c8cC2239327C5EDb3A432268e5831") {
     atomicAmount = parseUnits(amount, 6);
@@ -158,6 +162,8 @@ async function handleTokenApprovalsAndTransfer(
     args: [userAddress as Address, executorAddress],
   });
 
+  console.log("user", userAddress);
+  console.log("executor", executorAddress);
   console.log(`[DCA Swap] 📋 User approval to executor: ${formatUnits(userApproval, fromTokenDetail.decimals)} ${fromTokenDetail.symbol}`);
 
   if (userApproval < atomicAmount) {
@@ -177,13 +183,14 @@ async function handleTokenApprovalsAndTransfer(
   console.log(`[DCA Swap] ✅ Transfer transaction confirmed: ${transferTxHash}`);
 }
 
-export const executeDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParams, any, DCAContext, any> = {
+// Base executeDCASwap tool implementation (transaction preparation only)
+const baseExecuteDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParams, any, DCAContext, any> = {
   name: 'executeDCASwap',
-  description: 'Execute a DCA swap transaction using Ember MCP and record the result in the database',
+  description: 'Prepare a DCA swap transaction using Ember MCP for secure execution via hooks',
   parameters: ExecuteDCASwapParams,
   execute: async (args, context) => {
     try {
-      console.log(`[DCA Swap] 🔄 Executing swap for plan ${args.planId}: ${args.amount} ${args.fromToken} → ${args.toToken}`);
+      console.log(`[DCA Swap] 🔄 Preparing swap for plan ${args.planId}: ${args.amount} ${args.fromToken} → ${args.toToken}`);
 
       // Validate requirements
       if (!context.custom.executeTransaction) {
@@ -196,7 +203,6 @@ export const executeDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParam
       // Resolve tokens
       const fromTokenDetail = findTokenDetail(args.fromToken, context.custom.tokenMap);
       console.log("fromtoken details", fromTokenDetail);
-      // console.log("context.custom.tokenMap", context.custom.tokenMap);
       const toTokenDetail = findTokenDetail(args.toToken, context.custom.tokenMap);
 
       if (!fromTokenDetail) throw new Error(`Could not resolve fromToken "${args.fromToken}"`);
@@ -224,8 +230,6 @@ export const executeDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParam
       console.log("args.user", args.userAddress);
       console.log("args.slippage", args.slippage);
 
-      // Now the executor has the tokens and will perform the swap, sending proceeds to user
-      // Now the executor has the tokens and will perform the swap, sending proceeds to user
       const swapResult = await context.custom.mcpClient.callTool({
         name: 'swapTokens',
         arguments: {
@@ -257,15 +261,7 @@ export const executeDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParam
         throw new Error('No transactions received from swap plan');
       }
 
-      console.log(`[DCA Swap] ✅ Executing ${transactions.length} transaction(s)`);
-
-      // Execute transactions
-      const executionResult = await context.custom.executeTransaction.executeDCASwap(
-        args.planId,
-        transactions
-      );
-
-      console.log(`[DCA Swap] ✅ Transaction executed: ${executionResult.txHash}`);
+      console.log(`[DCA Swap] ✅ Prepared ${transactions.length} transaction(s) for secure execution via hooks`);
 
       // Calculate amounts - NOW WITH PROPER TYPE SAFETY
       const fromAmountHuman = args.amount;
@@ -278,79 +274,28 @@ export const executeDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParam
         console.log(`[DCA Swap] 📈 Result: ${toAmountHuman} ${args.toToken} at rate ${exchangeRate}`);
       }
 
-      // Record in database
-      const executionRecord = await context.custom.prisma.executionHistory.create({
-        data: {
-          planId: args.planId,
-          fromAmount: fromAmountHuman,
-          toAmount: toAmountHuman,
-          exchangeRate: exchangeRate,
-          gasFee: executionResult.gasUsed.toString(),
-          txHash: executionResult.txHash,
-          status: 'SUCCESS',
-        },
-      });
-
-      console.log(`[DCA Swap] 📝 Success recorded in database: ${executionRecord.id}`);
-
-      // Update plan
-      const plan = await context.custom.prisma.dcaPlan.findUnique({
-        where: { id: args.planId },
-      });
-
-      if (plan) {
-        const newExecutionCount = plan.executionCount + 1;
-        // Set next execution based on interval from now
-        const nextExecution = new Date(Date.now() + plan.intervalMinutes * 60 * 1000);
-        const isCompleted = newExecutionCount >= plan.totalExecutions;
-
-        await context.custom.prisma.dcaPlan.update({
-          where: { id: args.planId },
-          data: {
-            executionCount: newExecutionCount,
-            nextExecution: isCompleted ? null : nextExecution,
-            status: isCompleted ? 'COMPLETED' : 'ACTIVE',
-            updatedAt: new Date(),
-          },
-        });
-
-        console.log(`[DCA Swap] 📊 Plan updated: ${newExecutionCount}/${plan.totalExecutions} executions`);
-        if (!isCompleted) {
-          console.log(`[DCA Swap] ⏰ Next execution scheduled for: ${nextExecution.toISOString()}`);
-        }
-      }
-
-      return createSuccessTask(
-        'executeDCASwap',
-        [],
-        `🎉🎉 DCA swap executed: ${fromAmountHuman} ${args.fromToken} → ${toAmountHuman} ${args.toToken} (tx: ${executionResult.txHash})`
-      );
+      // Return transaction data for withHooks execution
+      return {
+        transactions,
+        planId: args.planId,
+        fromToken: args.fromToken,
+        toToken: args.toToken,
+        fromAmount: fromAmountHuman,
+        toAmount: toAmountHuman,
+        exchangeRate: exchangeRate,
+        userAddress: args.userAddress,
+        operation: 'dca-swap'
+      };
 
     } catch (error) {
-      console.error('[DCA Swap] ❌ Execution failed:', error);
-
-      // Record failure
-      try {
-        await context.custom.prisma.executionHistory.create({
-          data: {
-            planId: args.planId,
-            fromAmount: args.amount,
-            toAmount: '0',
-            exchangeRate: '0',
-            gasFee: null,
-            txHash: null,
-            status: 'FAILED',
-            errorMessage: error instanceof Error ? error.message : String(error),
-          },
-        });
-      } catch (dbError) {
-        console.error('[DCA Swap] ❌ Database error:', dbError);
-      }
-
-      return createErrorTask(
-        'executeDCASwap',
-        error instanceof Error ? error : new Error(`DCA swap failed: ${String(error)}`)
-      );
+      console.error('[DCA Swap] ❌ Preparation failed:', error);
+      throw error instanceof Error ? error : new Error(`DCA swap preparation failed: ${String(error)}`);
     }
   },
 };
+
+
+export const executeDCASwapTool = withHooks(baseExecuteDCASwapTool, {
+  before: transactionValidationBeforeHook,
+  after: transactionSigningAfterHook,
+});

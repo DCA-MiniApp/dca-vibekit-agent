@@ -1,11 +1,12 @@
 import type { VibkitToolDefinition } from 'arbitrum-vibekit-core';
 import { createSuccessTask, createErrorTask } from 'arbitrum-vibekit-core';
 import { z } from 'zod';
+import type { DCAContext } from '../context/types.js';
 
 /**
  * Tool to create a new DCA plan
  */
-export const createDCAPlanTool: VibkitToolDefinition<any, any, any, any> = {
+export const createDCAPlanTool: VibkitToolDefinition<any, any, DCAContext, any> = {
   name: 'createDCAPlan',
   description: 'Create a new Dollar Cost Averaging (DCA) plan for automated investment',
   parameters: z.object({
@@ -96,14 +97,29 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any, any, any> = {
         context
       );
 
-      if (executeResult.status.state === 'error') {
-        console.log('🔥 [TOOL] First execution failed, but plan was created:', executeResult.status.message);
-        return createSuccessTask(
-          'createDCAPlan',
-          [],
-          `DCA plan created: ${amount} ${fromToken} → ${toToken} every ${intervalMinutes} minutes for ${durationWeeks} weeks. First execution failed: ${executeResult.status.message}`
-        );
-      }
+             // Handle Task return type from hooks
+       if ('kind' in executeResult && executeResult.kind === 'task') {
+         // Check if the task indicates an error
+         if (executeResult.status?.state === 'failed' || executeResult.status?.state === 'rejected' || executeResult.status?.state === 'canceled') {
+           console.log('🔥 [TOOL] First execution failed, but plan was created:', executeResult.status.message);
+           const errorMessage = executeResult.status.message?.parts?.[0] && executeResult.status.message.parts[0].kind === 'text' 
+             ? executeResult.status.message.parts[0].text 
+             : 'Unknown error';
+           return createSuccessTask(
+             'createDCAPlan',
+             [],
+             `DCA plan created: ${amount} ${fromToken} → ${toToken} every ${intervalMinutes} minutes for ${durationWeeks} weeks. First execution failed: ${errorMessage}`
+           );
+         } else {
+           // Task completed successfully
+           console.log('🔥 [TOOL] First execution completed successfully via hooks');
+         }
+       } else if ('kind' in executeResult && executeResult.kind === 'message') {
+         // For Message type, we assume success
+         console.log('🔥 [TOOL] First execution completed successfully');
+       } else {
+         console.warn('🔥 [TOOL] Unexpected executeResult type:', executeResult);
+       }
 
       return createSuccessTask(
         'createDCAPlan',

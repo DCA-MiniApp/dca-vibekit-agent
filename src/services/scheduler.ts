@@ -44,7 +44,7 @@ export class DCAScheduler {
   constructor(context: DCAContext, config: Partial<SchedulerConfig> = {}) {
     this.context = context;
     this.config = {
-      intervalSeconds: parseInt(process.env.SCHEDULER_INTERVAL_SECONDS || '600', 10),
+      intervalSeconds: parseInt(process.env.SCHEDULER_INTERVAL_SECONDS || '60', 10),
       maxConcurrentExecutions: parseInt(process.env.MAX_CONCURRENT_EXECUTIONS || '50', 10),
       retryAttempts: 3,
       retryDelayMs: 5000,
@@ -280,16 +280,34 @@ export class DCAScheduler {
         );
 
         // 🔧 FIXED: Check Task status properly (was checking wrong property)
-        console.log(`[Scheduler] 🔍 Tool result status: ${toolResult.status.state}`);
+        // Handle Task | Message union type properly
+        if ('kind' in toolResult && toolResult.kind === 'task' && toolResult.status) {
+          console.log(`[Scheduler] 🔍 Tool result status: ${toolResult.status.state}`);
 
-        if (toolResult.status.state === TaskState.Completed) {
+          if (toolResult.status.state === TaskState.Completed) {
+            console.log(`[Scheduler] ✅ Plan ${planId} executed successfully via tool`);
+            const messageText = toolResult.status.message?.parts?.[0] && toolResult.status.message.parts[0].kind === 'text' 
+              ? toolResult.status.message.parts[0].text 
+              : 'Swap completed';
+            console.log(`[Scheduler]    Result: ${messageText}`);
+            return; // Success, exit retry loop
+          } else {
+            // Extract error message from failed task
+            const errorMessage = toolResult.status.message?.parts?.[0] && toolResult.status.message.parts[0].kind === 'text' 
+              ? toolResult.status.message.parts[0].text 
+              : 'Unknown error';
+            throw new Error(`Tool execution failed: ${errorMessage}`);
+          }
+        } else if ('kind' in toolResult && toolResult.kind === 'message') {
+          // Handle Message type
+          const messageText = toolResult.parts?.[0] && toolResult.parts[0].kind === 'text' 
+            ? toolResult.parts[0].text 
+            : 'Swap completed';
           console.log(`[Scheduler] ✅ Plan ${planId} executed successfully via tool`);
-          console.log(`[Scheduler]    Result: ${toolResult.status.message.parts[0]?.text || 'Swap completed'}`);
+          console.log(`[Scheduler]    Result: ${messageText}`);
           return; // Success, exit retry loop
         } else {
-          // Extract error message from failed task
-          const errorMessage = toolResult.status.message.parts[0]?.text || 'Unknown error';
-          throw new Error(`Tool execution failed: ${errorMessage}`);
+          throw new Error('Unexpected tool result type');
         }
 
       } catch (error) {
