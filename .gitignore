@@ -112,3 +112,4 @@ prisma/migrations/
 *.md
 
 local-deps/*/node-compile-cache
+*.json

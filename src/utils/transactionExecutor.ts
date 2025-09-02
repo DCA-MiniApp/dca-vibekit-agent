@@ -56,6 +56,9 @@ function getChainConfigById(chainId: string): ChainConfig {
 export class DCATransactionExecutor {
   private account: LocalAccount<string>;
   private userAddress: Address;
+  private currentNonce: number | null = null;
+  private nonceLastUpdated: number = 0;
+  private readonly NONCE_CACHE_MS = 5000; // Cache nonce for 5 seconds
 
   constructor(
     account: LocalAccount<string>,
@@ -78,6 +81,52 @@ export class DCATransactionExecutor {
   }
 
   /**
+   * Get the next nonce for transactions, managing sequential nonce increments
+   */
+  private async getNextNonce(publicClient: any, forceRefresh: boolean = false): Promise<number> {
+    const now = Date.now();
+    
+    // Force refresh or cache expired or first time
+    if (forceRefresh || this.currentNonce === null || (now - this.nonceLastUpdated) > this.NONCE_CACHE_MS) {
+      this.log('🔄 Fetching fresh nonce from network...');
+      
+      const networkNonce = await publicClient.getTransactionCount({
+        address: this.userAddress,
+        blockTag: 'pending' // Include pending transactions
+      });
+      
+      this.currentNonce = networkNonce;
+      this.nonceLastUpdated = now;
+      this.log(`✅ Fresh nonce fetched: ${this.currentNonce}`);
+    } else {
+      // Use cached nonce and increment for next transaction  
+      if (this.currentNonce !== null) {
+        this.currentNonce = this.currentNonce + 1;
+        this.log(`📈 Incremented cached nonce: ${this.currentNonce}`);
+      } else {
+        // This shouldn't happen but handle it as a safeguard
+        throw new Error('Nonce cache is unexpectedly null');
+      }
+    }
+    
+    // TypeScript guard - this.currentNonce should never be null at this point
+    if (this.currentNonce === null) {
+      throw new Error('Failed to get valid nonce');
+    }
+    
+    return this.currentNonce;
+  }
+
+  /**
+   * Reset nonce cache to force fresh fetch on next transaction
+   */
+  private resetNonceCache(): void {
+    this.currentNonce = null;
+    this.nonceLastUpdated = 0;
+    this.log('🔄 Nonce cache reset');
+  }
+
+  /**
    * Execute DCA swap transactions (can be multiple: approval + swap)
    * @param planId - DCA plan identifier for logging
    * @param transactions - Transaction plans from Ember MCP
@@ -96,11 +145,14 @@ export class DCATransactionExecutor {
 
     try {
       this.log(`Executing ${transactions.length} transaction(s) for DCA swap plan ${planId}...`);
+      
+      // Reset nonce cache at the start of each execution batch
+      this.resetNonceCache();
 
       const txHashes: string[] = [];
       let totalGasUsed = BigInt(0);
 
-      // Execute all transactions sequentially (like liquidation prevention agent)
+      // Execute all transactions sequentially with proper nonce management
       for (let i = 0; i < transactions.length; i++) {
         const transaction = transactions[i];
         if (!transaction) {
@@ -124,7 +176,8 @@ export class DCATransactionExecutor {
           this.log(`⚠️  Transaction requires ETH value: ${transaction.value} wei (${(BigInt(transaction.value) / BigInt(10 ** 18)).toString()} ETH)`);
         }
 
-        const { txHash, gasUsed } = await this.signAndSendTransaction(transaction);
+        // Execute with retry logic for nonce issues
+        const { txHash, gasUsed } = await this.signAndSendTransactionWithRetry(transaction, 3);
         txHashes.push(txHash);
         totalGasUsed += BigInt(gasUsed);
 
@@ -149,8 +202,59 @@ export class DCATransactionExecutor {
     } catch (error: unknown) {
       const err = error as Error;
       this.logError(`Error executing DCA swap for plan ${planId}:`, err.message);
+      
+      // Reset nonce cache on failure to ensure fresh start next time
+      this.resetNonceCache();
+      
       throw new Error(`DCA swap execution failed: ${err.message}`);
     }
+  }
+
+  /**
+   * Wrapper for transaction execution with retry logic for nonce issues
+   */
+  private async signAndSendTransactionWithRetry(
+    tx: TransactionPlan, 
+    maxRetries: number = 3
+  ): Promise<{
+    txHash: string;
+    gasUsed: string;
+  }> {
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        this.log(`🎯 Transaction attempt ${attempt}/${maxRetries}`);
+        return await this.signAndSendTransaction(tx);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        
+        // Check if it's a nonce-related error
+        const isNonceError = lastError.message.toLowerCase().includes('nonce') ||
+                           lastError.message.toLowerCase().includes('transaction underpriced') ||
+                           lastError.message.toLowerCase().includes('already known');
+        
+        if (isNonceError && attempt < maxRetries) {
+          this.logError(`❌ Attempt ${attempt} failed with nonce error: ${lastError.message}`);
+          this.log(`🔄 Resetting nonce cache and retrying in 2 seconds...`);
+          
+          // Reset nonce cache to force fresh fetch
+          this.resetNonceCache();
+          
+          // Wait before retry to avoid rapid-fire requests
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        } else {
+          // Non-nonce error or max retries reached
+          this.logError(`❌ Attempt ${attempt} failed: ${lastError.message}`);
+          if (attempt === maxRetries) {
+            throw lastError;
+          }
+        }
+      }
+    }
+    
+    // Should never reach here, but TypeScript requires it
+    throw lastError || new Error('Unknown error in transaction retry');
   }
 
   private async signAndSendTransaction(tx: TransactionPlan): Promise<{
@@ -225,31 +329,34 @@ export class DCATransactionExecutor {
       // Build transaction parameters
 
       // Estimate gas using the public client, then add a 20% buffer
-      this.log("esitmating gas...")
+      this.log("Estimating gas...")
       const gasEstimate = await publicClient.estimateGas({
         account: this.userAddress,
         to: toAddress,
         value: txValue,
         data: txData,
       }); 
-      this.log("gas estimated.....");
+      this.log("Gas estimated.....");
       
       this.log("gasEstimate", gasEstimate.toString());
+
+      // Get proper nonce for this transaction
+      const transactionNonce = await this.getNextNonce(publicClient);
+      this.log(`🎯 Using nonce: ${transactionNonce} for transaction`);
 
       const txParams: any = {
         to: toAddress,
         value: txValue,
         data: txData,
         gas: gasEstimate * 12n / 10n, // add 20% buffer
+        nonce: transactionNonce, // Use managed nonce
       };
 
-      // Add gas parameters if provided
+      // Add gas parameters if provided (but don't override nonce)
       if (tx.gas) {
         txParams.gas = BigInt(tx.gas);
       }
-      if (tx.nonce) {
-        txParams.nonce = Number(tx.nonce);
-      }
+      // Don't use tx.nonce as it may be stale - always use managed nonce
 
       // Add fee parameters (EIP-1559 or legacy)
       if (tx.maxFeePerGas && tx.maxPriorityFeePerGas) {

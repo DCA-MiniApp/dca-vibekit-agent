@@ -297,7 +297,7 @@ export const getPlatformStats: VibkitToolDefinition<any, any> = {
 
       return createSuccessTask(
         'getPlatformStats',
-        [],
+        [result],
         'Platform statistics retrieved successfully'
       );
     } catch (error) {

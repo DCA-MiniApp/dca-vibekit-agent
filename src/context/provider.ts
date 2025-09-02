@@ -7,6 +7,7 @@ import { DCATransactionExecutor } from '../utils/transactionExecutor.js';
 import { parseMcpToolResponsePayload } from 'arbitrum-vibekit-core';
 import { z } from 'zod';
 import pRetry from 'p-retry';
+import { saveTokenMapToJson, saveSampleTokenMap } from '../utils/tokenMapSaver.js';
 
 // Local type definitions for MCP getTokens response (same as ember-api)
 const TokenUidSchema = z.object({
@@ -140,6 +141,10 @@ async function loadTokenMap(mcpClient: any): Promise<Record<string, TokenInfo[]>
 
     console.log(`[Context] ✅ Received ${tokensResponse.tokens.length} tokens from Ember MCP`);
     const tokenMap = populateTokenMap(tokensResponse.tokens);
+
+    // Save tokenMap to JSON if enabled via environment variable
+    await saveTokenMapToJson(tokenMap);
+    await saveSampleTokenMap(tokenMap);
 
     // Debug: Log first 10 available Arbitrum tokens only
     const arbitrumSymbols = Object.entries(tokenMap)

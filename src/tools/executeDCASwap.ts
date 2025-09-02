@@ -73,6 +73,64 @@ function safeToHuman(value: string): string {
   return value.replace(/^\+/, '').trim();
 }
 
+/**
+ * Retry wrapper for MCP client calls with exponential backoff
+ */
+async function retryMcpCall<T>(
+  mcpClient: any,
+  toolName: string,
+  args: any,
+  maxRetries: number = 3,
+  baseDelay: number = 5000
+): Promise<T> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`[MCP Retry] 🎯 Attempt ${attempt}/${maxRetries} for ${toolName}`);
+      
+      const result = await mcpClient.callTool({
+        name: toolName,
+        arguments: args,
+      });
+      
+      console.log(`[MCP Retry] ✅ ${toolName} succeeded on attempt ${attempt}`);
+      return result;
+      
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.error(`[MCP Retry] ❌ Attempt ${attempt}/${maxRetries} failed for ${toolName}:`, lastError.message);
+      
+      // Check if it's a network-related error that should be retried
+      const isNetworkError = lastError.message.toLowerCase().includes('fetch failed') ||
+                           lastError.message.toLowerCase().includes('etimedout') ||
+                           lastError.message.toLowerCase().includes('econnreset') ||
+                           lastError.message.toLowerCase().includes('enotfound') ||
+                           lastError.message.toLowerCase().includes('network') ||
+                           lastError.message.toLowerCase().includes('timeout');
+      
+      if (isNetworkError && attempt < maxRetries) {
+        const delay = baseDelay * attempt; // Progressive delay: 5s, 10s, 15s
+        console.log(`[MCP Retry] 🔄 Network error detected, retrying in ${delay/1000} seconds...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        // Non-network error or max retries reached
+        if (attempt === maxRetries) {
+          console.error(`[MCP Retry] 💥 All ${maxRetries} attempts failed for ${toolName}`);
+          throw lastError;
+        } else {
+          // Non-retryable error, fail immediately
+          console.error(`[MCP Retry] 💥 Non-retryable error for ${toolName}, failing immediately`);
+          throw lastError;
+        }
+      }
+    }
+  }
+  
+  // Should never reach here, but TypeScript requires it
+  throw lastError || new Error(`Unknown error in MCP retry for ${toolName}`);
+}
+
 const ExecuteDCASwapParams = z.object({
   planId: z.string().describe('DCA plan ID to execute'),
   fromToken: z.string().describe('Source token symbol (e.g., USDC)'),
@@ -83,6 +141,49 @@ const ExecuteDCASwapParams = z.object({
 });
 
 const ROUTER_ADDRESS = '0xce16F69375520ab01377ce7B88f5BA8C48F8D666' as Address;
+
+/**
+ * Retry wrapper for blockchain operations with exponential backoff
+ */
+async function retryBlockchainOperation<T>(
+  operation: () => Promise<T>,
+  operationName: string,
+  maxRetries: number = 3,
+  baseDelay: number = 2000
+): Promise<T> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`[Blockchain Retry] 🎯 Attempt ${attempt}/${maxRetries} for ${operationName}`);
+      const result = await operation();
+      console.log(`[Blockchain Retry] ✅ ${operationName} succeeded on attempt ${attempt}`);
+      return result;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.error(`[Blockchain Retry] ❌ Attempt ${attempt}/${maxRetries} failed for ${operationName}:`, lastError.message);
+      
+      // Check if it's a retryable blockchain error
+      const isRetryableError = lastError.message.toLowerCase().includes('network') ||
+                              lastError.message.toLowerCase().includes('timeout') ||
+                              lastError.message.toLowerCase().includes('connection') ||
+                              lastError.message.toLowerCase().includes('rpc') ||
+                              lastError.message.toLowerCase().includes('fetch failed');
+      
+      if (isRetryableError && attempt < maxRetries) {
+        const delay = baseDelay * attempt; // Progressive delay: 2s, 4s, 6s
+        console.log(`[Blockchain Retry] 🔄 Retryable error detected, retrying in ${delay/1000} seconds...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        if (attempt === maxRetries || !isRetryableError) {
+          throw lastError;
+        }
+      }
+    }
+  }
+  
+  throw lastError || new Error(`Unknown error in blockchain retry for ${operationName}`);
+}
 
 /**
  * Handle token approvals and transfer from user to executor
@@ -123,13 +224,16 @@ async function handleTokenApprovalsAndTransfer(
 
   console.log(`[DCA Swap] 🔍 Checking approvals for ${fromTokenDetail.symbol} at ${fromTokenDetail.address}`);
 
-  // Check executor's approval to router (0xce16F69375520ab01377ce7B88f5BA8C48F8D666)
-  const executorApproval = await publicClient.readContract({
-    address: fromTokenDetail.address as Address,
-    abi: erc20Abi,
-    functionName: 'allowance',
-    args: [executorAddress, ROUTER_ADDRESS],
-  });
+  // Check executor's approval to router with retry
+  const executorApproval = await retryBlockchainOperation(
+    () => publicClient.readContract({
+      address: fromTokenDetail.address as Address,
+      abi: erc20Abi,
+      functionName: 'allowance',
+      args: [executorAddress, ROUTER_ADDRESS],
+    }),
+    'Check executor approval'
+  );
 
   console.log(`[DCA Swap] 📋 Executor approval to router: ${formatUnits(executorApproval, fromTokenDetail.decimals)} ${fromTokenDetail.symbol}`);
 
@@ -137,15 +241,21 @@ async function handleTokenApprovalsAndTransfer(
   if (executorApproval < atomicAmount) {
     console.log(`[DCA Swap] 🔓 Approving unlimited ${fromTokenDetail.symbol} to router ${ROUTER_ADDRESS}...`);
 
-    const approveTxHash = await walletClient.writeContract({
-      address: fromTokenDetail.address as Address,
-      abi: erc20Abi,
-      functionName: 'approve',
-      args: [ROUTER_ADDRESS, BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')],
-      account: context.custom.executeTransaction.account,
-    });
+    const approveTxHash = await retryBlockchainOperation(
+      () => walletClient.writeContract({
+        address: fromTokenDetail.address as Address,
+        abi: erc20Abi,
+        functionName: 'approve',
+        args: [ROUTER_ADDRESS, BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')],
+        account: context.custom.executeTransaction.account,
+      }),
+      'Approve router'
+    );
 
-    await publicClient.waitForTransactionReceipt({ hash: approveTxHash });
+    await retryBlockchainOperation(
+      () => publicClient.waitForTransactionReceipt({ hash: approveTxHash }),
+      'Wait for approval confirmation'
+    );
     console.log(`[DCA Swap] ✅ Router approval transaction confirmed: ${approveTxHash}`);
   } else {
     console.log(`[DCA Swap] ✅ Executor already has sufficient approval to router`);
@@ -154,13 +264,16 @@ async function handleTokenApprovalsAndTransfer(
   // Transfer tokens from user to executor (assumes user has approved executor)
   console.log(`[DCA Swap] 💸 Transferring ${amount} ${fromTokenDetail.symbol} from user to executor...`);
 
-  // Check user's approval to executor first
-  const userApproval = await publicClient.readContract({
-    address: fromTokenDetail.address as Address,
-    abi: erc20Abi,
-    functionName: 'allowance',
-    args: [userAddress as Address, executorAddress],
-  });
+  // Check user's approval to executor first with retry
+  const userApproval = await retryBlockchainOperation(
+    () => publicClient.readContract({
+      address: fromTokenDetail.address as Address,
+      abi: erc20Abi,
+      functionName: 'allowance',
+      args: [userAddress as Address, executorAddress],
+    }),
+    'Check user approval'
+  );
 
   console.log("user", userAddress);
   console.log("executor", executorAddress);
@@ -170,16 +283,22 @@ async function handleTokenApprovalsAndTransfer(
     throw new Error(`Insufficient user approval: need ${amount} ${fromTokenDetail.symbol} but user only approved ${formatUnits(userApproval, fromTokenDetail.decimals)}`);
   }
 
-  // Perform the transfer from user to executor
-  const transferTxHash = await walletClient.writeContract({
-    address: fromTokenDetail.address as Address,
-    abi: erc20Abi,
-    functionName: 'transferFrom',
-    args: [userAddress as Address, executorAddress, atomicAmount],
-    account: context.custom.executeTransaction.account,
-  });
+  // Perform the transfer from user to executor with retry
+  const transferTxHash = await retryBlockchainOperation(
+    () => walletClient.writeContract({
+      address: fromTokenDetail.address as Address,
+      abi: erc20Abi,
+      functionName: 'transferFrom',
+      args: [userAddress as Address, executorAddress, atomicAmount],
+      account: context.custom.executeTransaction.account,
+    }),
+    'Transfer tokens from user to executor'
+  );
 
-  await publicClient.waitForTransactionReceipt({ hash: transferTxHash });
+  await retryBlockchainOperation(
+    () => publicClient.waitForTransactionReceipt({ hash: transferTxHash }),
+    'Wait for transfer confirmation'
+  );
   console.log(`[DCA Swap] ✅ Transfer transaction confirmed: ${transferTxHash}`);
 }
 
@@ -223,30 +342,38 @@ const baseExecuteDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParams, 
         console.log("atomic amount", atomicAmount);
       }
 
-      // Get swap plan from Ember MCP
+      // Get swap plan from Ember MCP with retry mechanism
       console.log("args.slippage", args.slippage);
       console.log("fromTokenDetail", fromTokenDetail);
       console.log("toTokenDetail", toTokenDetail);
       console.log("args.user", args.userAddress);
       console.log("args.slippage", args.slippage);
 
-      const swapResult = await context.custom.mcpClient.callTool({
-        name: 'swapTokens',
-        arguments: {
-          orderType: 'MARKET_SELL',
-          baseToken: {
-            chainId: fromTokenDetail.chainId.toString(),
-            address: fromTokenDetail.address,
-          },
-          quoteToken: {
-            chainId: toTokenDetail.chainId.toString(),
-            address: toTokenDetail.address,
-          },
-          amount: atomicAmount.toString(),
-          recipient: args.userAddress, // Send swapped tokens to user
-          slippageTolerance: args.slippage,
+      console.log(`[DCA Swap] 🔄 Requesting swap plan with retry mechanism...`);
+      
+      const swapArgs = {
+        orderType: 'MARKET_SELL',
+        baseToken: {
+          chainId: fromTokenDetail.chainId.toString(),
+          address: fromTokenDetail.address,
         },
-      });
+        quoteToken: {
+          chainId: toTokenDetail.chainId.toString(),
+          address: toTokenDetail.address,
+        },
+        amount: atomicAmount.toString(),
+        recipient: args.userAddress, // Send swapped tokens to user
+        slippageTolerance: args.slippage,
+      };
+
+      // Use retry mechanism for network resilience
+      const swapResult: any = await retryMcpCall(
+        context.custom.mcpClient,
+        'swapTokens',
+        swapArgs,
+        3, // maxRetries
+        5000 // baseDelay (5 seconds)
+      );
 
       console.log(`[DCA Swap] 🔍 Swap result: ${JSON.stringify(swapResult)}`);
       if (swapResult.isError) {
