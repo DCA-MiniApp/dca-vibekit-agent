@@ -107,7 +107,7 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any, DCAContext, any> 
              : 'Unknown error';
            return createSuccessTask(
              'createDCAPlan',
-             [],
+             [result],
              `DCA plan created: ${amount} ${fromToken} → ${toToken} every ${intervalMinutes} minutes for ${durationWeeks} weeks. First execution failed: ${errorMessage}`
            );
          } else {
@@ -123,7 +123,7 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any, DCAContext, any> 
 
       return createSuccessTask(
         'createDCAPlan',
-        [],
+        [result],
         `🎉🎉 Successfully created DCA plan and executed first swap: ${amount} ${fromToken} → ${toToken} every ${intervalMinutes} minutes for ${durationWeeks} weeks`
       );
     } catch (error) {
@@ -162,7 +162,7 @@ export const getUserDCAPlans: VibkitToolDefinition<any, any> = {
       const plans = result.data || [];
       return createSuccessTask(
         'getUserDCAPlans',
-        [],
+        [result],
         `Found ${plans.length} DCA plans for ${userAddress}`
       );
     } catch (error) {
@@ -209,7 +209,7 @@ export const updateDCAPlanStatus: VibkitToolDefinition<any, any> = {
 
       return createSuccessTask(
         'updateDCAPlanStatus',
-        [],
+        [result],
         `Successfully updated DCA plan status to ${status}`
       );
     } catch (error) {
@@ -263,7 +263,7 @@ export const getDCAExecutionHistory: VibkitToolDefinition<any, any> = {
       const executions = result.data || [];
       return createSuccessTask(
         'getDCAExecutionHistory',
-        [],
+        [result],
         `Found ${executions.length} executions for plan ${planId}`
       );
     } catch (error) {
@@ -295,10 +295,11 @@ export const getPlatformStats: VibkitToolDefinition<any, any> = {
         );
       }
 
+      console.log('🔥 [TOOL] Platform statistics retrieved successfully:', result);
       return createSuccessTask(
         'getPlatformStats',
         [result],
-        'Platform statistics retrieved successfully'
+        'Platform statistics retrieved successfully '
       );
     } catch (error) {
       return createErrorTask(

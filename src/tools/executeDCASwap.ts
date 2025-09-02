@@ -416,6 +416,26 @@ const baseExecuteDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParams, 
 
     } catch (error) {
       console.error('[DCA Swap] ❌ Preparation failed:', error);
+      // Ensure failures during preparation are recorded in DB
+      try {
+        if (context?.custom?.prisma && args?.planId) {
+          await context.custom.prisma.executionHistory.create({
+            data: {
+              planId: args.planId,
+              fromAmount: args.amount || '0',
+              toAmount: '0',
+              exchangeRate: '0',
+              gasFee: null,
+              txHash: null,
+              status: 'FAILED',
+              errorMessage: error instanceof Error ? error.message : String(error),
+            },
+          });
+          console.log('[DCA Swap] 📝 Recorded FAILED execution due to preparation error');
+        }
+      } catch (dbError) {
+        console.error('[DCA Swap] ❌ Failed to record preparation error in DB:', dbError);
+      }
       throw error instanceof Error ? error : new Error(`DCA swap preparation failed: ${String(error)}`);
     }
   },
