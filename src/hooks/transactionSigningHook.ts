@@ -53,7 +53,8 @@ export const transactionSigningAfterHook: AfterHook<TransactionResult, any, DCAC
         fromAmount: fromAmount || '0',
         toAmount: toAmount || '0',
         exchangeRate: exchangeRate || '0',
-        gasFee: executionResult.gasUsed.toString(),
+        // Store total gas cost in ETH as string (reusing existing gasFee column)
+        gasFee: executionResult.gasCostEth,
         txHash: executionResult.txHash,
         status: 'SUCCESS',
       },

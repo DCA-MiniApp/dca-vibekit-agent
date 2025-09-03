@@ -53,6 +53,15 @@ function getChainConfigById(chainId: string): ChainConfig {
   return config;
 }
 
+function formatWeiToEth(wei: bigint): string {
+  const weiPerEth = 1_000_000_000_000_000_000n; // 1e18
+  const whole = wei / weiPerEth;
+  const fraction = wei % weiPerEth;
+  // Return up to 6 decimal places for readability
+  const fractionStr = (fraction.toString().padStart(18, '0')).slice(0, 6).replace(/0+$/, '');
+  return fractionStr.length > 0 ? `${whole.toString()}.${fractionStr}` : whole.toString();
+}
+
 export class DCATransactionExecutor {
   private account: LocalAccount<string>;
   private userAddress: Address;
@@ -137,6 +146,7 @@ export class DCATransactionExecutor {
     fromAmount: string;
     toAmount: string;
     gasUsed: string;
+    gasCostEth: string;
   }> {
     if (!transactions || transactions.length === 0) {
       this.log(`DCA swap for plan ${planId}: No transactions required.`);
@@ -151,6 +161,7 @@ export class DCATransactionExecutor {
 
       const txHashes: string[] = [];
       let totalGasUsed = BigInt(0);
+      let totalGasCostWei = BigInt(0);
 
       // Execute all transactions sequentially with proper nonce management
       for (let i = 0; i < transactions.length; i++) {
@@ -177,9 +188,10 @@ export class DCATransactionExecutor {
         }
 
         // Execute with retry logic for nonce issues
-        const { txHash, gasUsed } = await this.signAndSendTransactionWithRetry(transaction, 3);
+        const { txHash, gasUsed, gasCostWei } = await this.signAndSendTransactionWithRetry(transaction, 3);
         txHashes.push(txHash);
         totalGasUsed += BigInt(gasUsed);
+        totalGasCostWei += BigInt(gasCostWei);
 
         this.log(`Transaction ${i + 1}/${transactions.length} sent: ${txHash}`);
       }
@@ -198,6 +210,7 @@ export class DCATransactionExecutor {
         fromAmount: '0', // Will be filled from actual swap result analysis
         toAmount: '0', // Will be calculated from swap result analysis
         gasUsed: totalGasUsed.toString(),
+        gasCostEth: formatWeiToEth(totalGasCostWei),
       };
     } catch (error: unknown) {
       const err = error as Error;
@@ -219,6 +232,7 @@ export class DCATransactionExecutor {
   ): Promise<{
     txHash: string;
     gasUsed: string;
+    gasCostWei: string;
   }> {
     let lastError: Error | null = null;
     
@@ -260,6 +274,7 @@ export class DCATransactionExecutor {
   private async signAndSendTransaction(tx: TransactionPlan): Promise<{
     txHash: string;
     gasUsed: string;
+    gasCostWei: string;
   }> {
     if (!tx.chainId) {
       const errorMsg = `Transaction object missing required 'chainId' field`;
@@ -389,9 +404,18 @@ export class DCATransactionExecutor {
         );
       }
 
+      // Compute gas cost in wei: gasUsed * effective gas price
+      let gasCostWei = 0n;
+      if (receipt.effectiveGasPrice) {
+        gasCostWei = receipt.gasUsed * receipt.effectiveGasPrice;
+      } else if (tx.gasPrice) {
+        gasCostWei = receipt.gasUsed * BigInt(tx.gasPrice);
+      }
+
       return {
         txHash,
         gasUsed: receipt.gasUsed.toString(),
+        gasCostWei: gasCostWei.toString(),
       };
 
     } catch (error: unknown) {
