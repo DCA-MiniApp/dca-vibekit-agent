@@ -109,7 +109,7 @@ prisma/migrations/
 !prisma/migrations/.gitkeep
 
 
-*.md
+
 
 local-deps/*/node-compile-cache
 *.json
