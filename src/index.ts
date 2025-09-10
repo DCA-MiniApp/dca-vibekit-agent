@@ -53,7 +53,7 @@ const agent = Agent.create(agentConfig, {
 });
 
 // Start the agent
-const PORT = parseInt(process.env.PORT || '3001', 10);
+const PORT = parseInt(process.env.PORT || '3030', 10);
 
 // Health check endpoint for production deployments
 export { agent };
@@ -61,7 +61,7 @@ export { agent };
 async function startAgent() {
   try {
     // Start the REST API server on a different port
-    const API_PORT = parseInt(process.env.API_PORT || '3002', 10);
+    const API_PORT = parseInt(process.env.API_PORT || '3031', 10);
     apiServerInstance = apiServer.listen(API_PORT, () => {
       console.log(`🚀 DCA API Server started on http://localhost:${API_PORT}`);
       console.log(`📊 API Endpoints: http://localhost:${API_PORT}/api/*`);
@@ -75,20 +75,6 @@ async function startAgent() {
       console.log('🔥🔥🔥 [AGENT] Available skills:', agentConfig.skills.map(s => s.name));
       console.log('🔥🔥🔥 [AGENT] Available tools:', agentConfig.skills.flatMap(s => s.tools.map(t => t.name)));
 
-        
-      // Add middleware to log ALL incoming HTTP requests to /messages
-      // const originalApp = agent.app;
-      // if (originalApp) {
-      //   originalApp.use('/messages', (req: any, res: any, next: any) => {
-      //     console.log('🔥🔥🔥 [TRANSPORT] /messages endpoint hit!');
-      //     console.log('🔥🔥🔥 [TRANSPORT] Method:', req.method);
-      //     console.log('🔥🔥🔥 [TRANSPORT] Headers:', req.headers);
-      //     console.log('🔥🔥🔥 [TRANSPORT] Query:', req.query);
-      //     console.log('🔥🔥🔥 [TRANSPORT] Body preview:', JSON.stringify(req.body)?.slice(0, 200));
-      //     next();
-      //   });
-      // }
-      // Create manual MCP client for Ember endpoint (following liquidation prevention agent pattern)
       let emberMcpClient: Client | null = null;
 
       const emberEndpoint = process.env.EMBER_MCP_SERVER_URL || 'https://api.emberai.xyz/mcp';
