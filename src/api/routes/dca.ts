@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import { prisma } from '../../services/prisma.js';
-import { 
-  CreateDCAPlanSchema, 
+import {
+  CreateDCAPlanSchema,
   UpdateDCAPlanSchema,
+  UpdateDCAPlanDetailsSchema,
   type DCAPlanResponse,
   type PlatformStatsResponse,
-  type ApiResponse 
+  type ApiResponse
 } from '../../types/shared.js';
 
 const router: Router = Router();
@@ -40,6 +41,8 @@ router.post('/create', async (req, res) => {
         totalExecutions,
         slippage: slippage,
         status: 'ACTIVE',
+        jobId: null, // Initially null, will be updated when job is created
+        ipfsLink: null, // Initially null, will be updated when IPFS link is created
       },
     });
     
@@ -58,6 +61,8 @@ router.post('/create', async (req, res) => {
         executionCount: dcaPlan.executionCount,
         totalExecutions: dcaPlan.totalExecutions,
         slippage: dcaPlan.slippage.toString(),
+        jobId: dcaPlan.jobId,
+        ipfsLink: dcaPlan.ipfsLink,
         createdAt: dcaPlan.createdAt.toISOString(),
         updatedAt: dcaPlan.updatedAt.toISOString(),
       },
@@ -131,6 +136,8 @@ router.get('/plans/:userAddress', async (req, res) => {
       executionCount: plan.executionCount,
       totalExecutions: plan.totalExecutions,
       slippage: plan.slippage.toString(),
+      jobId: plan.jobId,
+      ipfsLink: plan.ipfsLink,
       createdAt: plan.createdAt.toISOString(),
       updatedAt: plan.updatedAt.toISOString(),
     }));
@@ -150,6 +157,93 @@ router.get('/plans/:userAddress', async (req, res) => {
       success: false,
       error: 'Internal Server Error',
       message: 'Failed to fetch DCA plans',
+    };
+    res.status(500).json(response);
+  }
+});
+
+// Update DCA plan details (jobId and ipfsLink)
+router.put('/plans/:planId/details', async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const validatedData = UpdateDCAPlanDetailsSchema.parse(req.body);
+
+    // Check if plan exists
+    const existingPlan = await prisma.dcaPlan.findUnique({
+      where: { id: planId },
+    });
+
+    if (!existingPlan) {
+      const response: ApiResponse = {
+        success: false,
+        error: 'Plan Not Found',
+        message: 'DCA plan not found',
+      };
+      return res.status(404).json(response);
+    }
+
+    // Prepare update data
+    const updateData: any = {
+      updatedAt: new Date(),
+    };
+
+    // Only update fields that are provided
+    if (validatedData.jobId !== undefined) {
+      updateData.jobId = validatedData.jobId;
+    }
+
+    if (validatedData.ipfsLink !== undefined) {
+      updateData.ipfsLink = validatedData.ipfsLink;
+    }
+
+    // Update plan details
+    const updatedPlan = await prisma.dcaPlan.update({
+      where: { id: planId },
+      data: updateData,
+    });
+
+    const response: ApiResponse<DCAPlanResponse> = {
+      success: true,
+      data: {
+        id: updatedPlan.id,
+        userAddress: updatedPlan.userAddress,
+        fromToken: updatedPlan.fromToken,
+        toToken: updatedPlan.toToken,
+        amount: updatedPlan.amount.toString(),
+        intervalMinutes: updatedPlan.intervalMinutes,
+        durationWeeks: updatedPlan.durationWeeks,
+        status: updatedPlan.status as any,
+        nextExecution: updatedPlan.nextExecution?.toISOString() || null,
+        executionCount: updatedPlan.executionCount,
+        totalExecutions: updatedPlan.totalExecutions,
+        slippage: updatedPlan.slippage.toString(),
+        jobId: updatedPlan.jobId,
+        ipfsLink: updatedPlan.ipfsLink,
+        createdAt: updatedPlan.createdAt.toISOString(),
+        updatedAt: updatedPlan.updatedAt.toISOString(),
+      },
+      message: `DCA plan details updated successfully`,
+    };
+
+    console.log(`✅ Updated DCA plan ${planId} details: jobId=${validatedData.jobId}, ipfsLink=${validatedData.ipfsLink}`);
+    res.json(response);
+
+  } catch (error) {
+    console.error('Error updating DCA plan details:', error);
+
+    if (error instanceof Error && error.name === 'ZodError') {
+      const response: ApiResponse = {
+        success: false,
+        error: 'Validation Error',
+        message: (error as any).errors.map((e: any) => `${e.path.join('.')}: ${e.message}`).join(', '),
+      };
+      return res.status(400).json(response);
+    }
+
+    const response: ApiResponse = {
+      success: false,
+      error: 'Internal Server Error',
+      message: 'Failed to update DCA plan details',
     };
     res.status(500).json(response);
   }
@@ -199,6 +293,8 @@ router.put('/plans/:planId', async (req, res) => {
         executionCount: updatedPlan.executionCount,
         totalExecutions: updatedPlan.totalExecutions,
         slippage: updatedPlan.slippage.toString(),
+        jobId: updatedPlan.jobId,
+        ipfsLink: updatedPlan.ipfsLink,
         createdAt: updatedPlan.createdAt.toISOString(),
         updatedAt: updatedPlan.updatedAt.toISOString(),
       },

@@ -2,8 +2,8 @@ import type { ContextDependencies, DCAContext, TokenInfo } from './types.js';
 import type { LanguageModelV1 } from 'ai';
 import { prisma, testDatabaseConnection } from '../services/prisma.js';
 import { Address, isAddress } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
-import { DCATransactionExecutor } from '../utils/transactionExecutor.js';
+// Removed privateKeyToAccount import since we don't need transaction execution
+// Removed transaction executor import since we don't need it anymore
 import { parseMcpToolResponsePayload } from 'arbitrum-vibekit-core';
 import { z } from 'zod';
 import pRetry from 'p-retry';
@@ -251,28 +251,6 @@ export async function contextProvider(
   const enableCaching = process.env.AGENT_CACHE_TOKENS === 'true';
   const privateKey = process.env.PRIVATE_KEY;
 
-  // Set up transaction execution if private key is provided
-  let transactionExecutor: DCATransactionExecutor | undefined;
-  let executionUserAddress: Address | undefined;
-  let transactionExecutionEnabled = false;
-
-  if (privateKey) {
-    try {
-      console.log('[Context] Setting up transaction execution...');
-      const account = privateKeyToAccount(privateKey as `0x${string}`);
-      executionUserAddress = account.address;
-      transactionExecutor = new DCATransactionExecutor(account, executionUserAddress);
-      transactionExecutionEnabled = true;
-      console.log(`[Context] Transaction execution enabled for address: ${executionUserAddress}`);
-    } catch (error) {
-      console.warn('[Context] Failed to set up transaction execution:', error);
-      console.warn('   DCA swaps will not be executed automatically');
-    }
-  } else {
-    console.warn('[Context] No PRIVATE_KEY provided - transaction execution disabled');
-    console.warn('   DCA plans can be created but swaps will not execute automatically');
-  }
-
   // Count available tokens
   const tokenCount = Object.values(tokenMap).reduce((count, tokens) => count + tokens.length, 0);
 
@@ -280,9 +258,8 @@ export async function contextProvider(
     prisma,
     mcpClient: emberMcpClient,
     tokenMap,
-    userAddress: executionUserAddress || defaultUserAddress,
+    userAddress: defaultUserAddress,
     llmModel,
-    executeTransaction: transactionExecutor,
     config: {
       arbitrumRpcUrl,
       emberMcpServerUrl,
@@ -296,7 +273,6 @@ export async function contextProvider(
       tokenCount,
       availableSkills: ['dca-management'],
       environment: process.env.NODE_ENV || 'development',
-      transactionExecutionEnabled,
     },
   };
 
@@ -316,7 +292,7 @@ export async function contextProvider(
     .length;
   console.log(`  - Token Map: ${arbitrumSymbolCount} Arbitrum symbols, ${arbitrumTokenCount} Arbitrum tokens (total: ${Object.keys(tokenMap).length} symbols, ${tokenCount} tokens)`);
   console.log(`  - RPC URL: ${arbitrumRpcUrl}`);
-  console.log(`  - Transaction Execution: ${transactionExecutionEnabled ? '✅ enabled' : '❌ disabled'}`);
+  console.log(`  - Transaction Execution: Handled by TriggerX (not backend)`);
 
   return context;
 }

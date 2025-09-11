@@ -7,7 +7,7 @@ import {
   getDCAExecutionHistory,
   getPlatformStats,
 } from '../tools/dcaPlans.js';
-import { executeDCASwapTool } from '../tools/executeDCASwap.js';
+import { prepareDCASwapTool } from '../tools/prepareDCASwap.js';
 
 console.log('🔥🔥🔥 [SKILL] Loading DCA Swapping skill...');
 console.log('🔥🔥🔥 [SKILL] Available tools:', [
@@ -16,7 +16,7 @@ console.log('🔥🔥🔥 [SKILL] Available tools:', [
   updateDCAPlanStatus.name,
   getDCAExecutionHistory.name,
   getPlatformStats.name,
-  executeDCASwapTool.name
+  prepareDCASwapTool.name
 ]);
 
 // Input schema for the DCA swapping skill with natural language instruction
@@ -49,6 +49,6 @@ export const dcaSwappingSkill = defineSkill({
     updateDCAPlanStatus,
     getDCAExecutionHistory,
     getPlatformStats,
-    executeDCASwapTool, // DCA swap execution with transaction handling
+    prepareDCASwapTool, // DCA swap preparation for TriggerX execution
   ],
 });

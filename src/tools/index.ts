@@ -14,8 +14,8 @@ export {
 } from './dcaPlans.js';
 
 export {
-  executeDCASwapTool,
-} from './executeDCASwap.js';
+  prepareDCASwapTool,
+} from './prepareDCASwap.js';
 
 // Future tools (Phase 5: Automation & Scheduling)
 // export { getTokenBalancesTool } from './tokenBalances.js';

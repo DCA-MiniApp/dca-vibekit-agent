@@ -36,25 +36,65 @@ export type CreateDCAPlanRequest = z.infer<typeof CreateDCAPlanSchema>;
 // DCA Plan Update Schema
 export const UpdateDCAPlanSchema = z.object({
   status: z.enum(['ACTIVE', 'PAUSED', 'CANCELLED'])
+    .optional()
     .describe('Updated plan status'),
 });
 
 export type UpdateDCAPlanRequest = z.infer<typeof UpdateDCAPlanSchema>;
 
-// Manual Swap Schema
-export const ManualSwapSchema = z.object({
-  userAddress: z.string()
-    .regex(/^0x[a-fA-F0-9]{40}$/, 'Invalid Ethereum address'),
-  fromToken: z.string().min(1).max(10),
-  toToken: z.string().min(1).max(10),
-  amount: z.string().regex(/^\d+(\.\d+)?$/, 'Amount must be a valid number'),
-  slippage: z.string()
-    .regex(/^\d+(\.\d+)?$/, 'Slippage must be a valid number')
-    .optional()
-    .default('0.5'),
+// DCA Plan Update Details Schema (for jobId and ipfsLink)
+export const UpdateDCAPlanDetailsSchema = z.object({
+  jobId: z.string().optional().describe('TriggerX job ID for the plan'),
+  ipfsLink: z.string().optional().describe('IPFS link for plan metadata'),
 });
 
-export type ManualSwapRequest = z.infer<typeof ManualSwapSchema>;
+export type UpdateDCAPlanDetailsRequest = z.infer<typeof UpdateDCAPlanDetailsSchema>;
+
+// Get User DCA Plans Schema
+export const GetUserDCAPlansSchema = z.object({
+  userAddress: z.string()
+    .regex(/^0x[a-fA-F0-9]{40}$/, 'Invalid Ethereum address')
+    .describe('User wallet address to get plans for'),
+});
+
+export type GetUserDCAPlansRequest = z.infer<typeof GetUserDCAPlansSchema>;
+
+// Update DCA Plan Status Schema
+export const UpdateDCAPlanStatusSchema = z.object({
+  planId: z.string()
+    .min(1)
+    .describe('DCA plan ID to update'),
+  status: z.enum(['ACTIVE', 'PAUSED', 'CANCELLED'])
+    .describe('New status for the DCA plan'),
+});
+
+export type UpdateDCAPlanStatusRequest = z.infer<typeof UpdateDCAPlanStatusSchema>;
+
+// Get DCA Execution History Schema
+export const GetDCAExecutionHistorySchema = z.object({
+  planId: z.string()
+    .min(1)
+    .describe('DCA plan ID to get history for'),
+  limit: z.number()
+    .min(1)
+    .max(100)
+    .optional()
+    .default(50)
+    .describe('Maximum number of executions to return (default: 50)'),
+  offset: z.number()
+    .min(0)
+    .optional()
+    .default(0)
+    .describe('Number of executions to skip for pagination (default: 0)'),
+});
+
+export type GetDCAExecutionHistoryRequest = z.infer<typeof GetDCAExecutionHistorySchema>;
+
+// Get Platform Stats Schema (empty schema for consistency)
+export const GetPlatformStatsSchema = z.object({});
+
+export type GetPlatformStatsRequest = z.infer<typeof GetPlatformStatsSchema>;
+
 
 // Response Types
 export interface DCAPlanResponse {
@@ -70,6 +110,8 @@ export interface DCAPlanResponse {
   executionCount: number;
   totalExecutions: number;
   slippage: string;
+  jobId: string | null;
+  ipfsLink: string | null;
   createdAt: string;
   updatedAt: string;
 }

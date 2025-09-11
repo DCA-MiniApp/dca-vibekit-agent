@@ -23,6 +23,8 @@ model DcaPlan {
   executionCount   Int      @default(0) @map("execution_count")
   totalExecutions  Int      @map("total_executions")
   slippage         Decimal  @default(2.0) @db.Decimal(5, 2)
+  jobId            String?  @map("job_id") @db.VarChar(255)
+  ipfsLink         String?  @map("ipfs_link") @db.Text
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -34,6 +36,7 @@ model DcaPlan {
   @@index([userAddress], name: "idx_user_plans")
   @@index([status], name: "idx_plan_status")
   @@index([createdAt], name: "idx_plan_created")
+  @@index([jobId], name: "idx_plan_job_id")
   @@map("dca_plans")
 }
 

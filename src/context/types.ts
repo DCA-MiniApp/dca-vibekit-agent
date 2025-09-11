@@ -2,7 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import type { LanguageModelV1 } from 'ai';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { Address } from 'viem';
-import type { DCATransactionExecutor } from '../utils/transactionExecutor.js';
+// Removed transaction executor import since we don't need it anymore
 
 export interface ContextDependencies {
   mcpClients: Record<string, Client>;
@@ -33,8 +33,7 @@ export interface DCAContext {
   // LLM model for AI operations
   llmModel?: LanguageModelV1;
   
-  // Transaction executor for DCA swaps
-  executeTransaction?: DCATransactionExecutor;
+  // Removed executeTransaction - transaction execution is handled by TriggerX now
   
   // Configuration
   config: {
@@ -52,6 +51,6 @@ export interface DCAContext {
     tokenCount: number;
     availableSkills: string[];
     environment: string;
-    transactionExecutionEnabled: boolean;
+      // Removed transactionExecutionEnabled - execution handled by TriggerX
   };
 }

@@ -1,7 +1,18 @@
 import type { VibkitToolDefinition } from 'arbitrum-vibekit-core';
 import { createSuccessTask, createErrorTask } from 'arbitrum-vibekit-core';
-import { z } from 'zod';
 import type { DCAContext } from '../context/types.js';
+import {
+  CreateDCAPlanSchema,
+  GetUserDCAPlansSchema,
+  UpdateDCAPlanStatusSchema,
+  GetDCAExecutionHistorySchema,
+  GetPlatformStatsSchema,
+  type CreateDCAPlanRequest,
+  type GetUserDCAPlansRequest,
+  type UpdateDCAPlanStatusRequest,
+  type GetDCAExecutionHistoryRequest,
+  type GetPlatformStatsRequest,
+} from '../types/shared.js';
 
 /**
  * Tool to create a new DCA plan
@@ -9,36 +20,9 @@ import type { DCAContext } from '../context/types.js';
 export const createDCAPlanTool: VibkitToolDefinition<any, any, DCAContext, any> = {
   name: 'createDCAPlan',
   description: 'Create a new Dollar Cost Averaging (DCA) plan for automated investment',
-  parameters: z.object({
-    userAddress: z.string()
-      .regex(/^0x[a-fA-F0-9]{40}$/, 'Invalid Ethereum address')
-      .describe('User wallet address'),
-    fromToken: z.string()
-      .min(1)
-      .max(10)
-      .describe('Source token symbol (e.g., USDC)'),
-    toToken: z.string()
-      .min(1)
-      .max(10)
-      .describe('Target token symbol (e.g., ETH)'),
-    amount: z.string()
-      .regex(/^\d+(\.\d+)?$/, 'Amount must be a valid number')
-      .describe('Investment amount per execution'),
-    intervalMinutes: z.number()
-      .min(2)
-      .max(43200) // Max 30 days
-      .describe('Execution interval in minutes'),
-    durationWeeks: z.number()
-      // .min(1)
-      // .max(260) // Max 5 years
-      .describe('Total investment duration in weeks'),
-    slippage: z.string()
-      .regex(/^\d+(\.\d+)?$/, 'Slippage must be a valid number')
-      .optional()
-      .default('2')
-      .describe('Slippage tolerance in percentage (default: 2%)'),
-  }),
-  execute: async ({ userAddress, fromToken, toToken, amount, intervalMinutes, durationWeeks, slippage }, context) => {
+  parameters: CreateDCAPlanSchema,
+  execute: async (params: CreateDCAPlanRequest, context) => {
+    const { userAddress, fromToken, toToken, amount, intervalMinutes, durationWeeks, slippage } = params;
 
     console.log('🔥🔥🔥 [TOOL] createDCAPlan CALLED!');
     console.log('🔥🔥🔥 [TOOL] Args:', { userAddress, fromToken, toToken, amount, intervalMinutes, durationWeeks, slippage });
@@ -70,61 +54,16 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any, DCAContext, any> 
         );
       }
 
-      // After creating the plan, execute the first swap immediately
-      console.log('🔥 [TOOL] Plan created successfully, executing first swap immediately...');
-      
-      // Import and call the execute tool directly
-      const { executeDCASwapTool } = await import('./executeDCASwap.js');
-      
-      // Ensure minimum slippage of 0.3%
-      let finalSlippage = slippage || '2';
-      const slippageValue = parseFloat(finalSlippage);
-      if (isNaN(slippageValue) || slippageValue < 0.3) {
-        finalSlippage = '0.3';
-      }
-      
-      // Create a minimal context for the execute tool (will be passed through)
-      const executeResult = await executeDCASwapTool.execute(
-        {
-          planId: result.data.id,
-          fromToken,
-          toToken,
-          amount,
-          userAddress,
-          slippage: finalSlippage, // Pass slippage as-is without division
-        },
-        // Pass through the context from the agent
-        context
-      );
+      // Return plan details without executing first swap - TriggerX will handle execution
+      console.log('🔥 [TOOL] Plan created successfully. Returning plan details for TriggerX integration...');
 
-             // Handle Task return type from hooks
-       if ('kind' in executeResult && executeResult.kind === 'task') {
-         // Check if the task indicates an error
-         if (executeResult.status?.state === 'failed' || executeResult.status?.state === 'rejected' || executeResult.status?.state === 'canceled') {
-           console.log('🔥 [TOOL] First execution failed, but plan was created:', executeResult.status.message);
-           const errorMessage = executeResult.status.message?.parts?.[0] && executeResult.status.message.parts[0].kind === 'text' 
-             ? executeResult.status.message.parts[0].text 
-             : 'Unknown error';
-           return createSuccessTask(
-             'createDCAPlan',
-             [result],
-             `DCA plan created: ${amount} ${fromToken} → ${toToken} every ${intervalMinutes} minutes for ${durationWeeks} weeks. First execution failed: ${errorMessage}`
-           );
-         } else {
-           // Task completed successfully
-           console.log('🔥 [TOOL] First execution completed successfully via hooks');
-         }
-       } else if ('kind' in executeResult && executeResult.kind === 'message') {
-         // For Message type, we assume success
-         console.log('🔥 [TOOL] First execution completed successfully');
-       } else {
-         console.warn('🔥 [TOOL] Unexpected executeResult type:', executeResult);
-       }
+      // Calculate total executions for reference
+      const totalExecutions = Math.floor((durationWeeks * 7 * 24 * 60) / intervalMinutes);
 
       return createSuccessTask(
         'createDCAPlan',
         [result],
-        `🎉🎉 Successfully created DCA plan and executed first swap: ${amount} ${fromToken} → ${toToken} every ${intervalMinutes} minutes for ${durationWeeks} weeks`
+        `🎉 DCA plan created successfully!`
       );
     } catch (error) {
       return createErrorTask(
@@ -141,12 +80,9 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any, DCAContext, any> 
 export const getUserDCAPlans: VibkitToolDefinition<any, any> = {
   name: 'getUserDCAPlans',
   description: 'Retrieve all DCA plans for a specific user address',
-  parameters: z.object({
-    userAddress: z.string()
-      .regex(/^0x[a-fA-F0-9]{40}$/, 'Invalid Ethereum address')
-      .describe('User wallet address to get plans for'),
-  }),
-  execute: async ({ userAddress }) => {
+  parameters: GetUserDCAPlansSchema,
+  execute: async (params: GetUserDCAPlansRequest) => {
+    const { userAddress } = params;
     try {
       const API_PORT = parseInt(process.env.API_PORT || '3002', 10);
       const response = await fetch(`http://localhost:${API_PORT}/api/dca/plans/${userAddress}`);
@@ -180,14 +116,9 @@ export const getUserDCAPlans: VibkitToolDefinition<any, any> = {
 export const updateDCAPlanStatus: VibkitToolDefinition<any, any> = {
   name: 'updateDCAPlanStatus',
   description: 'Update the status of a DCA plan (activate, pause, or cancel)',
-  parameters: z.object({
-    planId: z.string()
-      .min(1)
-      .describe('DCA plan ID to update'),
-    status: z.enum(['ACTIVE', 'PAUSED', 'CANCELLED'])
-      .describe('New status for the DCA plan'),
-  }),
-  execute: async ({ planId, status }) => {
+  parameters: UpdateDCAPlanStatusSchema,
+  execute: async (params: UpdateDCAPlanStatusRequest) => {
+    const { planId, status } = params;
     try {
       const API_PORT = parseInt(process.env.API_PORT || '3002', 10);
       const response = await fetch(`http://localhost:${API_PORT}/api/dca/plans/${planId}`, {
@@ -227,23 +158,9 @@ export const updateDCAPlanStatus: VibkitToolDefinition<any, any> = {
 export const getDCAExecutionHistory: VibkitToolDefinition<any, any> = {
   name: 'getDCAExecutionHistory',
   description: 'Get execution history for a specific DCA plan',
-  parameters: z.object({
-    planId: z.string()
-      .min(1)
-      .describe('DCA plan ID to get history for'),
-    limit: z.number()
-      .min(1)
-      .max(100)
-      .optional()
-      .default(50)
-      .describe('Maximum number of executions to return (default: 50)'),
-    offset: z.number()
-      .min(0)
-      .optional()
-      .default(0)
-      .describe('Number of executions to skip for pagination (default: 0)'),
-  }),
-  execute: async ({ planId, limit = 50, offset = 0 }) => {
+  parameters: GetDCAExecutionHistorySchema,
+  execute: async (params: GetDCAExecutionHistoryRequest) => {
+    const { planId, limit = 50, offset = 0 } = params;
     try {
       const API_PORT = parseInt(process.env.API_PORT || '3002', 10);
       const url = new URL(`http://localhost:${API_PORT}/api/dca/history/${planId}`);
@@ -281,8 +198,8 @@ export const getDCAExecutionHistory: VibkitToolDefinition<any, any> = {
 export const getPlatformStats: VibkitToolDefinition<any, any> = {
   name: 'getPlatformStats',
   description: 'Get overall platform statistics including total plans, users, and executions',
-  parameters: z.object({}),
-  execute: async () => {
+  parameters: GetPlatformStatsSchema,
+  execute: async (params: GetPlatformStatsRequest) => {
     try {
       const API_PORT = parseInt(process.env.API_PORT || '3002', 10);
       const response = await fetch(`http://localhost:${API_PORT}/api/dca/stats`);
