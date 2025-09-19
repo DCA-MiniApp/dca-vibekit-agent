@@ -17,37 +17,49 @@ import { arbitrum } from 'viem/chains';
 import { withHooks, transactionSigningAfterHook, transactionValidationBeforeHook } from '../hooks/index.js';
 
 
-// Response schema for Ember MCP - matches the official ember-api schema
+// Response schema for Ember MCP - this is the structuredContent directly
 const SwapTokensResponseSchema = z.object({
-  status: z.string(),
-  orderType: z.string(),
-  baseToken: z.object({
-    chainId: z.string(),
-    address: z.string(),
+  fromToken: z.object({
+    tokenUid: z.object({
+      chainId: z.string(),
+      address: z.string(),
+    }).optional(),
+    name: z.string(),
+    symbol: z.string(),
+    decimals: z.number(),
+    isNative: z.boolean(),
+    iconUri: z.string(),
+    isVetted: z.boolean(),
   }),
-  quoteToken: z.object({
-    chainId: z.string(),
-    address: z.string(),
+  toToken: z.object({
+    tokenUid: z.object({
+      chainId: z.string(),
+      address: z.string(),
+    }).optional(),
+    name: z.string(),
+    symbol: z.string(),
+    decimals: z.number(),
+    isNative: z.boolean(),
+    iconUri: z.string(),
+    isVetted: z.boolean(),
   }),
+  exactFromAmount: z.string(),
+  displayFromAmount: z.string(),
+  exactToAmount: z.string(),
+  displayToAmount: z.string(),
   transactions: z.array(z.object({
     type: z.string(),
     to: z.string(),
     data: z.string(),
     value: z.string(),
     chainId: z.string(),
-    gas: z.string().optional(),
-    gasPrice: z.string().optional(),
-    maxFeePerGas: z.string().optional(),
-    maxPriorityFeePerGas: z.string().optional(),
   })),
   estimation: z.object({
-    baseTokenDelta: z.string(),
-    quoteTokenDelta: z.string(),
     effectivePrice: z.string(),
     timeEstimate: z.string(),
     expiration: z.string(),
-  }).optional(),
-  chainId: z.string(),
+  }),
+  // We don't need providerTracking for our functionality, so we'll ignore it
 });
 
 type SwapTokensResponse = z.infer<typeof SwapTokensResponseSchema>;
@@ -132,12 +144,15 @@ async function retryMcpCall<T>(
 }
 
 const ExecuteDCASwapParams = z.object({
-  planId: z.string().describe('DCA plan ID to execute'),
-  fromToken: z.string().describe('Source token symbol (e.g., USDC)'),
-  toToken: z.string().describe('Target token symbol (e.g., ETH)'),
-  amount: z.string().describe('Amount to swap in source token units'),
-  userAddress: z.string().describe('User wallet address for the swap'),
+  walletAddress: z.string().describe('The wallet address that will perform the token swap'),
+  amount: z.string().describe('The amount of tokens to swap (input amount for exactIn, output amount for exactOut)'),
+  amountType: z.string().describe('Whether the amount represents input tokens (exactIn) or desired output tokens (exactOut)'),
+  toChain: z.string().describe('The destination blockchain network for the token swap'),
+  fromChain: z.string().describe('The source blockchain network for the token swap'),
+  fromToken: z.string().describe('The token to swap from (source token symbol or name)'),
+  toToken: z.string().describe('The token to swap to (destination token symbol or name)'),
   slippage: z.string().optional().default('2').describe('Slippage tolerance percentage'),
+  planId: z.string().optional().describe('Optional DCA plan ID for tracking executions'),
 });
 
 const ROUTER_ADDRESS = '0xce16F69375520ab01377ce7B88f5BA8C48F8D666' as Address;
@@ -192,23 +207,24 @@ async function handleTokenApprovalsAndTransfer(
   context: any,
   fromTokenDetail: TokenInfo,
   amount: string,
-  userAddress: string
+  walletAddress: string
 ): Promise<void> {
   if (!context.custom.executeTransaction) {
     throw new Error('Transaction executor not available');
   }
 
   const executorAddress = context.custom.executeTransaction.executorAddress;
-  //console all details of fromtoken
-
+  
   console.log("From token details:", fromTokenDetail);
+  console.log("user", walletAddress);
+  console.log("executor", executorAddress);
+  
   // Use token's actual decimals for all tokens
   let atomicAmount = parseUnits(amount, fromTokenDetail.decimals);
   if (fromTokenDetail.address == "0xaf88d065e77c8cC2239327C5EDb3A432268e5831") {
     atomicAmount = parseUnits(amount, 6);
     console.log("atomic amount", atomicAmount);
   }
-
 
   // Create clients for token operations
   const publicClient = createPublicClient({
@@ -224,92 +240,138 @@ async function handleTokenApprovalsAndTransfer(
 
   console.log(`[DCA Swap] 🔍 Checking approvals for ${fromTokenDetail.symbol} at ${fromTokenDetail.address}`);
 
-  // Check executor's approval to router with retry
-  const executorApproval = await retryBlockchainOperation(
-    () => publicClient.readContract({
-      address: fromTokenDetail.address as Address,
-      abi: erc20Abi,
-      functionName: 'allowance',
-      args: [executorAddress, ROUTER_ADDRESS],
-    }),
-    'Check executor approval'
-  );
+  // Check if user and executor are the same (self-execution case)
+  const isSelfExecution = walletAddress.toLowerCase() === executorAddress.toLowerCase();
+  
+  if (isSelfExecution) {
+    console.log(`[DCA Swap] 🔄 Self-execution detected - user and executor are same address`);
+    
+    // Only need to check/approve router for direct execution
+    const userApproval = await retryBlockchainOperation(
+      () => publicClient.readContract({
+        address: fromTokenDetail.address as Address,
+        abi: erc20Abi,
+        functionName: 'allowance',
+        args: [walletAddress as Address, ROUTER_ADDRESS],
+      }),
+      'Check user approval to router'
+    );
 
-  console.log(`[DCA Swap] 📋 Executor approval to router: ${formatUnits(executorApproval, fromTokenDetail.decimals)} ${fromTokenDetail.symbol}`);
+    console.log(`[DCA Swap] 📋 User approval to router: ${formatUnits(userApproval, fromTokenDetail.decimals)} ${fromTokenDetail.symbol}`);
 
-  // If approval is insufficient, approve unlimited to router
-  if (executorApproval < atomicAmount) {
-    console.log(`[DCA Swap] 🔓 Approving unlimited ${fromTokenDetail.symbol} to router ${ROUTER_ADDRESS}...`);
+    // If approval is insufficient, approve unlimited to router
+    if (userApproval < atomicAmount) {
+      console.log(`[DCA Swap] 🔓 Approving unlimited ${fromTokenDetail.symbol} to router ${ROUTER_ADDRESS}...`);
 
-    const approveTxHash = await retryBlockchainOperation(
+      const approveTxHash = await retryBlockchainOperation(
+        () => walletClient.writeContract({
+          address: fromTokenDetail.address as Address,
+          abi: erc20Abi,
+          functionName: 'approve',
+          args: [ROUTER_ADDRESS, BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')],
+          account: context.custom.executeTransaction.account,
+        }),
+        'Approve router'
+      );
+
+      await retryBlockchainOperation(
+        () => publicClient.waitForTransactionReceipt({ hash: approveTxHash }),
+        'Wait for approval confirmation'
+      );
+      console.log(`[DCA Swap] ✅ Router approval transaction confirmed: ${approveTxHash}`);
+    } else {
+      console.log(`[DCA Swap] ✅ User already has sufficient approval to router`);
+    }
+    
+  } else {
+    // Separate executor case - need to handle transfers between user and executor
+    console.log(`[DCA Swap] 🔄 Separate executor detected - handling user to executor transfer`);
+    
+    // Check executor's approval to router with retry
+    const executorApproval = await retryBlockchainOperation(
+      () => publicClient.readContract({
+        address: fromTokenDetail.address as Address,
+        abi: erc20Abi,
+        functionName: 'allowance',
+        args: [executorAddress, ROUTER_ADDRESS],
+      }),
+      'Check executor approval'
+    );
+
+    console.log(`[DCA Swap] 📋 Executor approval to router: ${formatUnits(executorApproval, fromTokenDetail.decimals)} ${fromTokenDetail.symbol}`);
+
+    // If approval is insufficient, approve unlimited to router
+    if (executorApproval < atomicAmount) {
+      console.log(`[DCA Swap] 🔓 Approving unlimited ${fromTokenDetail.symbol} to router ${ROUTER_ADDRESS}...`);
+
+      const approveTxHash = await retryBlockchainOperation(
+        () => walletClient.writeContract({
+          address: fromTokenDetail.address as Address,
+          abi: erc20Abi,
+          functionName: 'approve',
+          args: [ROUTER_ADDRESS, BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')],
+          account: context.custom.executeTransaction.account,
+        }),
+        'Approve router'
+      );
+
+      await retryBlockchainOperation(
+        () => publicClient.waitForTransactionReceipt({ hash: approveTxHash }),
+        'Wait for approval confirmation'
+      );
+      console.log(`[DCA Swap] ✅ Router approval transaction confirmed: ${approveTxHash}`);
+    } else {
+      console.log(`[DCA Swap] ✅ Executor already has sufficient approval to router`);
+    }
+
+    // Transfer tokens from user to executor (assumes user has approved executor)
+    console.log(`[DCA Swap] 💸 Transferring ${amount} ${fromTokenDetail.symbol} from user to executor...`);
+
+    // Check user's approval to executor first with retry
+    const userApproval = await retryBlockchainOperation(
+      () => publicClient.readContract({
+        address: fromTokenDetail.address as Address,
+        abi: erc20Abi,
+        functionName: 'allowance',
+        args: [walletAddress as Address, executorAddress],
+      }),
+      'Check user approval'
+    );
+
+    console.log(`[DCA Swap] 📋 User approval to executor: ${formatUnits(userApproval, fromTokenDetail.decimals)} ${fromTokenDetail.symbol}`);
+
+    if (userApproval < atomicAmount) {
+      throw new Error(`Insufficient user approval: need ${amount} ${fromTokenDetail.symbol} but user only approved ${formatUnits(userApproval, fromTokenDetail.decimals)}`);
+    }
+
+    // Perform the transfer from user to executor with retry
+    const transferTxHash = await retryBlockchainOperation(
       () => walletClient.writeContract({
         address: fromTokenDetail.address as Address,
         abi: erc20Abi,
-        functionName: 'approve',
-        args: [ROUTER_ADDRESS, BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')],
+        functionName: 'transferFrom',
+        args: [walletAddress as Address, executorAddress, atomicAmount],
         account: context.custom.executeTransaction.account,
       }),
-      'Approve router'
+      'Transfer tokens from user to executor'
     );
 
     await retryBlockchainOperation(
-      () => publicClient.waitForTransactionReceipt({ hash: approveTxHash }),
-      'Wait for approval confirmation'
+      () => publicClient.waitForTransactionReceipt({ hash: transferTxHash }),
+      'Wait for transfer confirmation'
     );
-    console.log(`[DCA Swap] ✅ Router approval transaction confirmed: ${approveTxHash}`);
-  } else {
-    console.log(`[DCA Swap] ✅ Executor already has sufficient approval to router`);
+    console.log(`[DCA Swap] ✅ Transfer transaction confirmed: ${transferTxHash}`);
   }
-
-  // Transfer tokens from user to executor (assumes user has approved executor)
-  console.log(`[DCA Swap] 💸 Transferring ${amount} ${fromTokenDetail.symbol} from user to executor...`);
-
-  // Check user's approval to executor first with retry
-  const userApproval = await retryBlockchainOperation(
-    () => publicClient.readContract({
-      address: fromTokenDetail.address as Address,
-      abi: erc20Abi,
-      functionName: 'allowance',
-      args: [userAddress as Address, executorAddress],
-    }),
-    'Check user approval'
-  );
-
-  console.log("user", userAddress);
-  console.log("executor", executorAddress);
-  console.log(`[DCA Swap] 📋 User approval to executor: ${formatUnits(userApproval, fromTokenDetail.decimals)} ${fromTokenDetail.symbol}`);
-
-  if (userApproval < atomicAmount) {
-    throw new Error(`Insufficient user approval: need ${amount} ${fromTokenDetail.symbol} but user only approved ${formatUnits(userApproval, fromTokenDetail.decimals)}`);
-  }
-
-  // Perform the transfer from user to executor with retry
-  const transferTxHash = await retryBlockchainOperation(
-    () => walletClient.writeContract({
-      address: fromTokenDetail.address as Address,
-      abi: erc20Abi,
-      functionName: 'transferFrom',
-      args: [userAddress as Address, executorAddress, atomicAmount],
-      account: context.custom.executeTransaction.account,
-    }),
-    'Transfer tokens from user to executor'
-  );
-
-  await retryBlockchainOperation(
-    () => publicClient.waitForTransactionReceipt({ hash: transferTxHash }),
-    'Wait for transfer confirmation'
-  );
-  console.log(`[DCA Swap] ✅ Transfer transaction confirmed: ${transferTxHash}`);
 }
 
 // Base executeDCASwap tool implementation (transaction preparation only)
 const baseExecuteDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParams, any, DCAContext, any> = {
   name: 'executeDCASwap',
-  description: 'Prepare a DCA swap transaction using Ember MCP for secure execution via hooks',
+  description: 'Prepare a token swap transaction using Ember MCP for secure execution via hooks',
   parameters: ExecuteDCASwapParams,
   execute: async (args, context) => {
     try {
-      console.log(`[DCA Swap] 🔄 Preparing swap for plan ${args.planId}: ${args.amount} ${args.fromToken} → ${args.toToken}`);
+      console.log(`[DCA Swap] 🔄 Preparing swap: ${args.amount} ${args.fromToken} → ${args.toToken} (${args.amountType})`);
 
       // Validate requirements
       if (!context.custom.executeTransaction) {
@@ -334,7 +396,7 @@ const baseExecuteDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParams, 
         context,
         fromTokenDetail,
         args.amount,
-        args.userAddress
+        args.walletAddress
       );
       let atomicAmount = parseUnits(args.amount, fromTokenDetail.decimals);
       if (fromTokenDetail.address == "0xaf88d065e77c8cC2239327C5EDb3A432268e5831") {
@@ -346,30 +408,27 @@ const baseExecuteDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParams, 
       console.log("args.slippage", args.slippage);
       console.log("fromTokenDetail", fromTokenDetail);
       console.log("toTokenDetail", toTokenDetail);
-      console.log("args.user", args.userAddress);
-      console.log("args.slippage", args.slippage);
+      console.log("args.walletAddress", args.walletAddress);
+      console.log("args.amountType", args.amountType);
 
       console.log(`[DCA Swap] 🔄 Requesting swap plan with retry mechanism...`);
       
+      console.log("args.amount", args.amount);
       const swapArgs = {
-        orderType: 'MARKET_SELL',
-        baseToken: {
-          chainId: fromTokenDetail.chainId.toString(),
-          address: fromTokenDetail.address,
-        },
-        quoteToken: {
-          chainId: toTokenDetail.chainId.toString(),
-          address: toTokenDetail.address,
-        },
-        amount: atomicAmount.toString(),
-        recipient: args.userAddress, // Send swapped tokens to user
+        walletAddress: args.walletAddress,
+        amount: args.amount,
+        amountType: args.amountType,
+        toChain: args.toChain,
+        fromChain: args.fromChain,
+        fromToken: args.fromToken,
+        toToken: args.toToken,
         slippageTolerance: args.slippage,
       };
 
       // Use retry mechanism for network resilience
       const swapResult: any = await retryMcpCall(
         context.custom.mcpClient,
-        'swapTokens',
+        'createSwap',
         swapArgs,
         3, // maxRetries
         5000 // baseDelay (5 seconds)
@@ -380,62 +439,38 @@ const baseExecuteDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParams, 
         throw new Error(`Failed to get swap plan: ${swapResult.content}`);
       }
 
-      // Parse and execute - NOW PROPERLY TYPED
-      const parsedResponse: SwapTokensResponse = parseMcpToolResponsePayload(swapResult, SwapTokensResponseSchema);
-      const { transactions, estimation } = parsedResponse;
+      // Parse and execute - the structuredContent is parsed directly
+      const structuredContent: SwapTokensResponse = parseMcpToolResponsePayload(swapResult, SwapTokensResponseSchema);
 
-      if (!transactions || transactions.length === 0) {
+      if (!structuredContent?.transactions || structuredContent.transactions.length === 0) {
         throw new Error('No transactions received from swap plan');
       }
 
-      console.log(`[DCA Swap] ✅ Prepared ${transactions.length} transaction(s) for secure execution via hooks`);
+      console.log(`[DCA Swap] ✅ Prepared ${structuredContent.transactions.length} transaction(s) for secure execution via hooks`);
 
-      // Calculate amounts - NOW WITH PROPER TYPE SAFETY
-      const fromAmountHuman = args.amount;
-      let toAmountHuman = '0';
-      let exchangeRate = '0';
+      // Calculate amounts from structured content
+      const fromAmountHuman = structuredContent.displayFromAmount;
+      const toAmountHuman = structuredContent.displayToAmount;
+      const exchangeRate = structuredContent.estimation.effectivePrice;
 
-      if (estimation) {
-        toAmountHuman = safeToHuman(estimation.quoteTokenDelta);
-        exchangeRate = safeToHuman(estimation.effectivePrice);
-        console.log(`[DCA Swap] 📈 Result: ${toAmountHuman} ${args.toToken} at rate ${exchangeRate}`);
-      }
+      console.log(`[DCA Swap] 📈 Result: ${toAmountHuman} ${args.toToken} at rate ${exchangeRate}`);
 
       // Return transaction data for withHooks execution
       return {
-        transactions,
-        planId: args.planId,
+        transactions: structuredContent.transactions,
+        planId: args.planId, // Include planId if provided
         fromToken: args.fromToken,
         toToken: args.toToken,
         fromAmount: fromAmountHuman,
         toAmount: toAmountHuman,
         exchangeRate: exchangeRate,
-        userAddress: args.userAddress,
-        operation: 'dca-swap'
+        userAddress: args.walletAddress,
+        operation: 'dca-swap',
+        structuredContent: structuredContent
       };
 
     } catch (error) {
       console.error('[DCA Swap] ❌ Preparation failed:', error);
-      // Ensure failures during preparation are recorded in DB
-      try {
-        if (context?.custom?.prisma && args?.planId) {
-          await context.custom.prisma.executionHistory.create({
-            data: {
-              planId: args.planId,
-              fromAmount: args.amount || '0',
-              toAmount: '0',
-              exchangeRate: '0',
-              gasFee: null,
-              txHash: null,
-              status: 'FAILED',
-              errorMessage: error instanceof Error ? error.message : String(error),
-            },
-          });
-          console.log('[DCA Swap] 📝 Recorded FAILED execution due to preparation error');
-        }
-      } catch (dbError) {
-        console.error('[DCA Swap] ❌ Failed to record preparation error in DB:', dbError);
-      }
       throw error instanceof Error ? error : new Error(`DCA swap preparation failed: ${String(error)}`);
     }
   },

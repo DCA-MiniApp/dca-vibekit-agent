@@ -84,14 +84,20 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any, DCAContext, any> 
       }
       
       // Create a minimal context for the execute tool (will be passed through)
+      console.log("now executing the execute tool");
+      console.log("userAddress", userAddress);
+      console.log("planId", result.data.id);
       const executeResult = await executeDCASwapTool.execute(
         {
-          planId: result.data.id,
+          walletAddress: userAddress,
+          amount,
+          amountType: 'exactIn', // Default to exact input amount
+          toChain: 'Arbitrum One', // Default to Arbitrum for DCA
+          fromChain: 'Arbitrum One', // Default to Arbitrum for DCA
           fromToken,
           toToken,
-          amount,
-          userAddress,
           slippage: finalSlippage, // Pass slippage as-is without division
+          planId: result.data.id, // Pass the created plan ID for tracking
         },
         // Pass through the context from the agent
         context
