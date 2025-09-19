@@ -12,42 +12,10 @@ import { createSuccessTask, createErrorTask, parseMcpToolResponsePayload } from 
 import { z } from 'zod';
 import type { DCAContext, TokenInfo } from '../context/types.js';
 import { parseUnits } from 'viem';
+import { CreateSwapResponseSchema, type CreateSwapResponse } from '../types/shared.js';
 
 
-// Response schema for Ember MCP - matches the official ember-api schema
-const SwapTokensResponseSchema = z.object({
-  status: z.string(),
-  orderType: z.string(),
-  baseToken: z.object({
-    chainId: z.string(),
-    address: z.string(),
-  }),
-  quoteToken: z.object({
-    chainId: z.string(),
-    address: z.string(),
-  }),
-  transactions: z.array(z.object({
-    type: z.string(),
-    to: z.string(),
-    data: z.string(),
-    value: z.string(),
-    chainId: z.string(),
-    gas: z.string().optional(),
-    gasPrice: z.string().optional(),
-    maxFeePerGas: z.string().optional(),
-    maxPriorityFeePerGas: z.string().optional(),
-  })),
-  estimation: z.object({
-    baseTokenDelta: z.string(),
-    quoteTokenDelta: z.string(),
-    effectivePrice: z.string(),
-    timeEstimate: z.string(),
-    expiration: z.string(),
-  }).optional(),
-  chainId: z.string(),
-});
-
-type SwapTokensResponse = z.infer<typeof SwapTokensResponseSchema>;
+// Schema is now imported from shared.ts
 
 /**
  * Find token details in the context's token map
@@ -81,34 +49,48 @@ async function retryMcpCall<T>(
   baseDelay: number = 5000
 ): Promise<T> {
   let lastError: Error | null = null;
-  
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       console.log(`[MCP Retry] 🎯 Attempt ${attempt}/${maxRetries} for ${toolName}`);
-      
+      console.log("args", args);
+      const tools = await mcpClient.listTools();
+      console.log("tools", tools);
+      const createSwapTool = tools.tools.find((t: any) => t.name === "createSwap");
+
+      console.log(
+        "createSwap.inputSchema",
+        JSON.stringify(createSwapTool.inputSchema, null, 2)
+      );
+
+      console.log(
+        "createSwap.outputSchema",
+        JSON.stringify(createSwapTool.outputSchema, null, 2)
+      );
+
       const result = await mcpClient.callTool({
         name: toolName,
         arguments: args,
       });
-      
+
       console.log(`[MCP Retry] ✅ ${toolName} succeeded on attempt ${attempt}`);
       return result;
-      
+
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       console.error(`[MCP Retry] ❌ Attempt ${attempt}/${maxRetries} failed for ${toolName}:`, lastError.message);
-      
+
       // Check if it's a network-related error that should be retried
       const isNetworkError = lastError.message.toLowerCase().includes('fetch failed') ||
-                           lastError.message.toLowerCase().includes('etimedout') ||
-                           lastError.message.toLowerCase().includes('econnreset') ||
-                           lastError.message.toLowerCase().includes('enotfound') ||
-                           lastError.message.toLowerCase().includes('network') ||
-                           lastError.message.toLowerCase().includes('timeout');
-      
+        lastError.message.toLowerCase().includes('etimedout') ||
+        lastError.message.toLowerCase().includes('econnreset') ||
+        lastError.message.toLowerCase().includes('enotfound') ||
+        lastError.message.toLowerCase().includes('network') ||
+        lastError.message.toLowerCase().includes('timeout');
+
       if (isNetworkError && attempt < maxRetries) {
         const delay = baseDelay * attempt; // Progressive delay: 5s, 10s, 15s
-        console.log(`[MCP Retry] 🔄 Network error detected, retrying in ${delay/1000} seconds...`);
+        console.log(`[MCP Retry] 🔄 Network error detected, retrying in ${delay / 1000} seconds...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       } else {
         // Non-network error or max retries reached
@@ -123,7 +105,7 @@ async function retryMcpCall<T>(
       }
     }
   }
-  
+
   // Should never reach here, but TypeScript requires it
   throw lastError || new Error(`Unknown error in MCP retry for ${toolName}`);
 }
@@ -179,25 +161,37 @@ const basePrepareDCASwapTool: VibkitToolDefinition<typeof PrepareDCASwapParams, 
 
       console.log(`[DCA Swap] 🔄 Requesting swap plan with retry mechanism...`);
 
-      const swapArgs = {
-        orderType: 'MARKET_SELL',
-        baseToken: {
-          chainId: fromTokenDetail.chainId.toString(),
-          address: fromTokenDetail.address,
-        },
-        quoteToken: {
-          chainId: toTokenDetail.chainId.toString(),
-          address: toTokenDetail.address,
-        },
-        amount: atomicAmount.toString(),
-        recipient: userAddress, // Send swapped tokens to user
-        slippageTolerance: slippage,
-      };
+      // const swapArgs = {
+      //   orderType: 'MARKET_SELL',
+      //   baseToken: {
+      //     chainId: fromTokenDetail.chainId.toString(),
+      //     address: fromTokenDetail.address,
+      //   },
+      //   quoteToken: {
+      //     chainId: toTokenDetail.chainId.toString(),
+      //     address: toTokenDetail.address,
+      //   },
+      //   amount: atomicAmount.toString(),
+      //   recipient: userAddress, // Send swapped tokens to user
+      //   slippageTolerance: slippage,
+      // };
 
+      const swapArgs = {
+        walletAddress: userAddress,              // string
+        fromChain: fromTokenDetail.chainId.toString(), // string
+        // fromChain: "arbitrum", // string
+        toChain: toTokenDetail.chainId.toString(),     // string
+        // toChain: "arbitrum",     // string
+        fromToken: fromTokenDetail.symbol,      // string (token contract address)
+        toToken: toTokenDetail.symbol,          // string (token contract address)
+        amount: atomicAmount.toString(),         // string (amount in wei/atomic units)
+        amountType: "exactIn",                   // or "exactOut"
+        // slippageTolerance: "0.5",           // string (percentage or bps depending on API)
+      };
       // Use retry mechanism for network resilience
       const swapResult: any = await retryMcpCall(
         context.custom.mcpClient,
-        'swapTokens',
+        'createSwap',
         swapArgs,
         3, // maxRetries
         5000 // baseDelay (5 seconds)
@@ -205,20 +199,38 @@ const basePrepareDCASwapTool: VibkitToolDefinition<typeof PrepareDCASwapParams, 
 
       console.log(`[DCA Swap] 🔍 Swap result: ${JSON.stringify(swapResult)}`);
       if (swapResult.isError) {
-        throw new Error(`Failed to get swap plan: ${swapResult.content}`);
+        throw new Error(
+          `Failed to get swap plan: ${JSON.stringify(swapResult.content, null, 2)}`
+        );
       }
 
-      // Parse response
-      const parsedResponse: SwapTokensResponse = parseMcpToolResponsePayload(swapResult, SwapTokensResponseSchema);
-      const { transactions } = parsedResponse;
+      // Parse response using the new schema
+      const parsedResponse: CreateSwapResponse = parseMcpToolResponsePayload(swapResult, CreateSwapResponseSchema);
+
+      // Extract data from the new response format
+      const {
+        transactions,
+        exactFromAmount,
+        exactToAmount,
+        displayFromAmount,
+        displayToAmount,
+        feeBreakdown,
+        estimation,
+        providerTracking
+      } = parsedResponse;
 
       if (!transactions || transactions.length === 0) {
         throw new Error('No transactions received from swap plan');
       }
 
       console.log(`[DCA Swap] ✅ Prepared ${transactions.length} transaction(s) for TriggerX execution`);
+      console.log(`[DCA Swap] 📊 Swap details: ${displayFromAmount} → ${displayToAmount}`);
 
-      // Return only transactions for TriggerX
+      if (feeBreakdown) {
+        console.log(`[DCA Swap] 💰 Fees: ${feeBreakdown.total} ${feeBreakdown.feeDenomination}`);
+      }
+
+      // Return transactions and additional metadata for TriggerX
       return {
         planId,
         transactions,
@@ -227,12 +239,28 @@ const basePrepareDCASwapTool: VibkitToolDefinition<typeof PrepareDCASwapParams, 
           toToken,
           amount,
           userAddress,
-          slippage
+          slippage,
+          // Additional data from the new response format
+          exactFromAmount,
+          exactToAmount,
+          displayFromAmount,
+          displayToAmount,
+          feeBreakdown,
+          estimation,
+          providerTracking,
         }
       };
 
     } catch (error) {
       console.error('[DCA Swap] ❌ Preparation failed:', error);
+      if (error && typeof error === 'object' && 'response' in error) {
+        const errorWithResponse = error as { response: { status: number; data: any } };
+        console.error("Status:", errorWithResponse.response.status);
+        console.error("Data:", JSON.stringify(errorWithResponse.response.data, null, 2));
+      }
+
+      // As a catch-all: stringify everything
+      console.error("Full error JSON:", JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
       // Record failed preparation in database
       try {
         if (context?.custom?.prisma && args?.planId) {

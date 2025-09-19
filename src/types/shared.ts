@@ -157,3 +157,67 @@ export function validateTokenSymbol(symbol: string): boolean {
 export function validateAmount(amount: string): boolean {
   return /^\d+(\.\d+)?$/.test(amount) && parseFloat(amount) > 0;
 }
+
+// CreateSwap Response Schema - matches the official createSwap output schema
+export const CreateSwapResponseSchema = z.object({
+  fromToken: z.object({
+    tokenUid: z.object({
+      chainId: z.string(),
+      address: z.string(),
+    }),
+    name: z.string(),
+    symbol: z.string(),
+    isNative: z.boolean(),
+    decimals: z.number(),
+    iconUri: z.string().nullable().optional(),
+    isVetted: z.boolean(),
+  }),
+  toToken: z.object({
+    tokenUid: z.object({
+      chainId: z.string(),
+      address: z.string(),
+    }),
+    name: z.string(),
+    symbol: z.string(),
+    isNative: z.boolean(),
+    decimals: z.number(),
+    iconUri: z.string().nullable().optional(),
+    isVetted: z.boolean(),
+  }),
+  exactFromAmount: z.string(),
+  displayFromAmount: z.string(),
+  exactToAmount: z.string(),
+  displayToAmount: z.string(),
+  transactions: z.array(z.object({
+    type: z.enum(['TRANSACTION_TYPE_UNSPECIFIED', 'EVM_TX', 'SOLANA_TX']),
+    to: z.string(),
+    data: z.string(),
+    value: z.string(),
+    chainId: z.string(),
+  })),
+  feeBreakdown: z.object({
+    serviceFee: z.string(),
+    slippageCost: z.string(),
+    total: z.string(),
+    feeDenomination: z.string(),
+  }).optional(),
+  estimation: z.object({
+    effectivePrice: z.string(),
+    timeEstimate: z.string(),
+    expiration: z.string(),
+  }).optional(),
+  providerTracking: z.object({
+    requestId: z.string(),
+    providerName: z.string(),
+    explorerUrl: z.string(),
+  }).optional(),
+});
+
+export type CreateSwapResponse = z.infer<typeof CreateSwapResponseSchema>;
+
+// Additional types for better type safety
+export type SwapTransaction = CreateSwapResponse['transactions'][0];
+export type SwapFeeBreakdown = NonNullable<CreateSwapResponse['feeBreakdown']>;
+export type SwapEstimation = NonNullable<CreateSwapResponse['estimation']>;
+export type SwapProviderTracking = NonNullable<CreateSwapResponse['providerTracking']>;
+export type SwapToken = CreateSwapResponse['fromToken'];
