@@ -266,6 +266,8 @@ router.get('/user/:userAddress/history', async (req, res) => {
       take: parseInt(limit as string),
       skip: parseInt(offset as string),
     });
+
+    console.log(`[DCAAPI] 🔍 Found ${executions.length} executions for user ${userAddress}`);
     
     const formattedExecutions = executions.map(execution => ({
       id: execution.id,
@@ -278,6 +280,10 @@ router.get('/user/:userAddress/history', async (req, res) => {
       txHash: execution.txHash,
       status: execution.status,
       errorMessage: execution.errorMessage,
+      // Vault-related fields  
+      vaultAddress: execution.vaultAddress,
+      shareTokens: execution.shareTokens?.toString() || null,
+      depositTxHash: execution.depositTxHash,
       // Include plan details for token pair display
       plan: {
         id: execution.plan.id,
