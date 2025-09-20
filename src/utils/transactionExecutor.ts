@@ -81,6 +81,10 @@ export class DCATransactionExecutor {
     return this.userAddress;
   }
 
+  get executorAccount(): LocalAccount<string> {
+    return this.account;
+  }
+
   private log(...args: unknown[]) {
     console.log('[DCATransactionExecutor]', ...args);
   }

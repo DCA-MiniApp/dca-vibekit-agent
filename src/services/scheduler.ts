@@ -270,10 +270,13 @@ export class DCAScheduler {
         const toolResult = await executeDCASwapTool.execute(
           {
             planId: plan.id,
+            walletAddress: plan.userAddress,
+            amount: plan.amount.toString(),
+            amountType: 'exactIn',
+            toChain: 'Arbitrum One',
+            fromChain: 'Arbitrum One',
             fromToken: plan.fromToken,
             toToken: plan.toToken,
-            amount: plan.amount.toString(),
-            userAddress: plan.userAddress,
             slippage: plan.slippage.toString(),
           },
           toolContext as any

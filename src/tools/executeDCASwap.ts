@@ -15,6 +15,7 @@ import { formatUnits, parseUnits, type Address, createPublicClient, createWallet
 import { arbitrum } from 'viem/chains';
 
 import { withHooks, transactionSigningAfterHook, transactionValidationBeforeHook } from '../hooks/index.js';
+import { hasVaultSupport, getVaultMapping } from '../utils/vaultUtils.js';
 
 
 // Response schema for Ember MCP - this is the structuredContent directly
@@ -414,8 +415,16 @@ const baseExecuteDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParams, 
       console.log(`[DCA Swap] 🔄 Requesting swap plan with retry mechanism...`);
       
       console.log("args.amount", args.amount);
+      
+      // Check if toToken has vault support - if so, send to executor instead of user
+      const hasVault = hasVaultSupport(args.toToken);
+      const finalRecipient = hasVault ? context.custom.executeTransaction.executorAddress : args.walletAddress;
+      
+      console.log(`[DCA Swap] 🏦 Vault support for ${args.toToken}: ${hasVault}`);
+      console.log(`[DCA Swap] 📍 Final recipient: ${finalRecipient} ${hasVault ? '(executor for vault)' : '(user direct)'}`);
+      
       const swapArgs = {
-        walletAddress: args.walletAddress,
+        walletAddress: finalRecipient, // Use executor if vault supported, user otherwise
         amount: args.amount,
         amountType: args.amountType,
         toChain: args.toChain,
@@ -455,6 +464,9 @@ const baseExecuteDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParams, 
 
       console.log(`[DCA Swap] 📈 Result: ${toAmountHuman} ${args.toToken} at rate ${exchangeRate}`);
 
+      // Get vault information if applicable
+      const vaultMapping = hasVault ? getVaultMapping(args.toToken) : null;
+      
       // Return transaction data for withHooks execution
       return {
         transactions: structuredContent.transactions,
@@ -466,7 +478,11 @@ const baseExecuteDCASwapTool: VibkitToolDefinition<typeof ExecuteDCASwapParams, 
         exchangeRate: exchangeRate,
         userAddress: args.walletAddress,
         operation: 'dca-swap',
-        structuredContent: structuredContent
+        structuredContent: structuredContent,
+        // Vault-related data
+        hasVaultSupport: hasVault,
+        vaultAddress: vaultMapping?.vaultAddress,
+        recipient: finalRecipient
       };
 
     } catch (error) {

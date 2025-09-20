@@ -1,6 +1,8 @@
 import { createSuccessTask, createErrorTask } from 'arbitrum-vibekit-core';
 import type { AfterHook } from './withHooks.js';
 import type { DCAContext } from '../context/types.js';
+import { VaultInteractions } from '../utils/vaultInteractions.js';
+import { getVaultMapping } from '../utils/vaultUtils.js';
 
 /**
  * Transaction execution result interface
@@ -42,6 +44,34 @@ export const transactionSigningAfterHook: AfterHook<TransactionResult, any, DCAC
     if (!context.custom.executeTransaction) {
       throw new Error('Transaction executor not available');
     }
+
+    // Pre-execution: measure executor's toToken balance BEFORE swap
+    let balanceBefore = BigInt(0);
+    let vaultMapping = null;
+    const executorAddress = context.custom.executeTransaction.executorAddress;
+    
+    if (result.hasVaultSupport && result.vaultAddress) {
+      vaultMapping = getVaultMapping(toToken);
+      if (vaultMapping) {
+        const { createPublicClient, http, erc20Abi } = await import('viem');
+        const { arbitrum } = await import('viem/chains');
+        
+        const publicClient = createPublicClient({
+          chain: arbitrum,
+          transport: http(context.custom.config.arbitrumRpcUrl)
+        });
+        
+        // Get executor's toToken balance BEFORE executing swap
+        balanceBefore = await publicClient.readContract({
+          address: vaultMapping.tokenAddress as any,
+          abi: erc20Abi,
+          functionName: 'balanceOf',
+          args: [executorAddress],
+        }) as bigint;
+        
+        console.log(`🔍 [withHooks] Executor's ${toToken} balance BEFORE swap: ${balanceBefore.toString()}`);
+      }
+    }
     
     const executionResult = await context.custom.executeTransaction.executeDCASwap(
       planId || `${finalUserAddress}-transaction`, 
@@ -49,6 +79,142 @@ export const transactionSigningAfterHook: AfterHook<TransactionResult, any, DCAC
     );
 
     console.log(`✅ [withHooks] Transaction executed: ${executionResult.txHash}`);
+
+    // Handle vault deposit if the toToken has vault support
+    let vaultDepositResult = null;
+    let actualTokensReceived = '0';
+    
+    if (result.hasVaultSupport && result.vaultAddress && vaultMapping) {
+      console.log(`🏦 [withHooks] Processing vault deposit for ${toToken}...`);
+      
+      // Post-execution: measure executor's toToken balance AFTER swap
+      const { createPublicClient, http, erc20Abi, formatUnits } = await import('viem');
+      const { arbitrum } = await import('viem/chains');
+      
+      const publicClient = createPublicClient({
+        chain: arbitrum,
+        transport: http(context.custom.config.arbitrumRpcUrl)
+      });
+      
+      // Get executor's toToken balance AFTER executing swap
+      const balanceAfter = await publicClient.readContract({
+        address: vaultMapping.tokenAddress as any,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [executorAddress],
+      }) as bigint;
+      
+      console.log(`🔍 [withHooks] Executor's ${toToken} balance AFTER swap: ${balanceAfter.toString()}`);
+      
+      // Calculate actual tokens received from the swap by difference
+      const tokensReceivedWei = balanceAfter - balanceBefore;
+      actualTokensReceived = formatUnits(tokensReceivedWei, vaultMapping.decimals);
+      
+      console.log(`🎯 [withHooks] Actual ${toToken} received from swap: ${actualTokensReceived} (diff: ${tokensReceivedWei.toString()} wei)`);
+      
+      // Only deposit if we received tokens from the swap
+      if (tokensReceivedWei > 0) {
+        const vaultInteractions = new VaultInteractions(
+          context.custom.executeTransaction.executorAccount,
+          context.custom.config.arbitrumRpcUrl
+        );
+        
+        vaultDepositResult = await vaultInteractions.depositToVault(
+          vaultMapping.tokenAddress as any,
+          result.vaultAddress as any,
+          actualTokensReceived, // Use exact amount received from swap
+          vaultMapping.decimals,
+          finalUserAddress as any
+        );
+      } else {
+        console.log(`⚠️ [withHooks] No ${toToken} received from swap (diff: ${tokensReceivedWei.toString()}) - skipping vault deposit`);
+      }
+      
+      if (vaultDepositResult && vaultDepositResult.success) {
+        console.log(`✅ [withHooks] Vault deposit successful: ${vaultDepositResult.shareTokens} shares`);
+        
+        // Update user vault holdings - INCREMENT shares, don't overwrite
+        // Use proper string-based arithmetic to prevent precision loss
+        const shareTokensReceived = vaultDepositResult.shareTokens;
+        
+        try {
+          const existingHolding = await context.custom.prisma.userVaultHoldings.findUnique({
+            where: {
+              user_vault_unique: {
+                userAddress: finalUserAddress,
+                vaultAddress: result.vaultAddress,
+              },
+            },
+          });
+          
+          if (existingHolding) {
+            // User already has holdings - increment the share tokens
+            // Convert to BigInt for precise addition, then back to string
+            const { parseUnits, formatUnits } = await import('viem');
+            
+            // Get vault decimals for proper conversion
+            if (vaultMapping) {
+              const currentSharesWei = parseUnits(existingHolding.shareTokens.toString(), vaultMapping.decimals);
+              const receivedSharesWei = parseUnits(shareTokensReceived, vaultMapping.decimals);
+              const newTotalWei = currentSharesWei + receivedSharesWei;
+              const newTotalHuman = formatUnits(newTotalWei, vaultMapping.decimals);
+              
+              await context.custom.prisma.userVaultHoldings.update({
+                where: {
+                  user_vault_unique: {
+                    userAddress: finalUserAddress,
+                    vaultAddress: result.vaultAddress,
+                  },
+                },
+                data: {
+                  shareTokens: newTotalHuman,
+                  updatedAt: new Date(),
+                },
+              });
+              
+              console.log(`📝 [withHooks] Incremented vault holdings: ${existingHolding.shareTokens} + ${shareTokensReceived} = ${newTotalHuman} shares`);
+            } else {
+              // Fallback to simple string concatenation if no vault mapping (shouldn't happen)
+              console.warn(`⚠️ [withHooks] No vault mapping found for precision arithmetic, using parseFloat fallback`);
+              const currentShares = parseFloat(existingHolding.shareTokens.toString());
+              const receivedShares = parseFloat(shareTokensReceived);
+              const newTotal = currentShares + receivedShares;
+              
+              await context.custom.prisma.userVaultHoldings.update({
+                where: {
+                  user_vault_unique: {
+                    userAddress: finalUserAddress,
+                    vaultAddress: result.vaultAddress,
+                  },
+                },
+                data: {
+                  shareTokens: newTotal.toString(),
+                  updatedAt: new Date(),
+                },
+              });
+              
+              console.log(`📝 [withHooks] Incremented vault holdings: ${currentShares} + ${receivedShares} = ${newTotal} shares`);
+            }
+          } else {
+            // First time user - create new holding record
+            await context.custom.prisma.userVaultHoldings.create({
+              data: {
+                userAddress: finalUserAddress,
+                vaultAddress: result.vaultAddress,
+                shareTokens: shareTokensReceived,
+                tokenSymbol: toToken,
+              },
+            });
+            
+            console.log(`📝 [withHooks] Created new vault holding: ${shareTokensReceived} shares`);
+          }
+        } catch (dbError) {
+          console.error(`❌ [withHooks] Failed to update vault holdings:`, dbError);
+        }
+      } else {
+        console.error(`❌ [withHooks] Vault deposit failed: ${vaultDepositResult?.error || 'Unknown error'}`);
+      }
+    }
 
     // Record in database only if we have a valid planId (for DCA plan executions)
     let executionRecord = null;
@@ -63,6 +229,10 @@ export const transactionSigningAfterHook: AfterHook<TransactionResult, any, DCAC
           gasFee: executionResult.gasCostEth,
           txHash: executionResult.txHash,
           status: 'SUCCESS',
+          // Vault-related fields
+          vaultAddress: result.vaultAddress || null,
+          shareTokens: vaultDepositResult?.shareTokens || null,
+          depositTxHash: vaultDepositResult?.depositTxHash || null,
         },
       });
       console.log(`📝 [withHooks] Success recorded in database: ${executionRecord.id}`);

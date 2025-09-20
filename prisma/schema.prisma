@@ -48,6 +48,11 @@ model ExecutionHistory {
   txHash        String?  @map("tx_hash") @db.VarChar(66)
   status        ExecutionStatus
   errorMessage  String?  @map("error_message") @db.Text
+  
+  // Vault-related fields
+  vaultAddress  String?  @map("vault_address") @db.VarChar(42)
+  shareTokens   Decimal? @map("share_tokens") @db.Decimal(36, 18)
+  depositTxHash String?  @map("deposit_tx_hash") @db.VarChar(66)
 
   // Relations
   plan DcaPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
@@ -57,7 +62,24 @@ model ExecutionHistory {
   @@index([executedAt], name: "idx_execution_time")
   @@index([status], name: "idx_execution_status")
   @@index([txHash], name: "idx_execution_tx")
+  @@index([vaultAddress], name: "idx_execution_vault")
   @@map("execution_history")
+}
+
+model UserVaultHoldings {
+  id           String   @id @default(cuid())
+  userAddress  String   @map("user_address") @db.VarChar(42)
+  vaultAddress String   @map("vault_address") @db.VarChar(42)
+  shareTokens  Decimal  @map("share_tokens") @db.Decimal(36, 18)
+  tokenSymbol  String   @map("token_symbol") @db.VarChar(10)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Composite unique constraint to prevent duplicate entries
+  @@unique([userAddress, vaultAddress], name: "user_vault_unique")
+  @@index([userAddress], name: "idx_user_holdings")
+  @@index([vaultAddress], name: "idx_vault_holdings")
+  @@map("user_vault_holdings")
 }
 
 enum DcaStatus {
