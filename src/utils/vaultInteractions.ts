@@ -15,23 +15,9 @@ import {
 } from 'viem';
 import { arbitrum } from 'viem/chains';
 
-// Standard ERC4626 Vault ABI (commonly used interface)
+// Simplified Vault ABI - deposit/withdraw with amounts only
 const vaultAbi = [
   // Read functions
-  {
-    inputs: [{ name: 'assets', type: 'uint256' }],
-    name: 'convertToShares',
-    outputs: [{ name: 'shares', type: 'uint256' }],
-    stateMutability: 'view',
-    type: 'function',
-  },
-  {
-    inputs: [{ name: 'shares', type: 'uint256' }],
-    name: 'convertToAssets',
-    outputs: [{ name: 'assets', type: 'uint256' }],
-    stateMutability: 'view',
-    type: 'function',
-  },
   {
     inputs: [{ name: 'account', type: 'address' }],
     name: 'balanceOf',
@@ -39,24 +25,17 @@ const vaultAbi = [
     stateMutability: 'view',
     type: 'function',
   },
-  // Write functions
+  // Write functions - simplified signatures
   {
-    inputs: [
-      { name: 'assets', type: 'uint256' },
-      { name: 'receiver', type: 'address' }
-    ],
+    inputs: [{ name: '_amount', type: 'uint256' }],
     name: 'deposit',
     outputs: [{ name: 'shares', type: 'uint256' }],
     stateMutability: 'nonpayable',
     type: 'function',
   },
   {
-    inputs: [
-      { name: 'shares', type: 'uint256' },
-      { name: 'receiver', type: 'address' },
-      { name: 'owner', type: 'address' }
-    ],
-    name: 'redeem',
+    inputs: [{ name: '_shares', type: 'uint256' }],
+    name: 'withdraw',
     outputs: [{ name: 'assets', type: 'uint256' }],
     stateMutability: 'nonpayable',
     type: 'function',
@@ -152,40 +131,44 @@ export class VaultInteractions {
         console.log(`[VaultInteractions] ✅ Approval confirmed: ${approveTxHash}`);
       }
 
-      // Get user's share balance BEFORE deposit
-      const sharesBefore = await this.publicClient.readContract({
+      // Get executor's share balance BEFORE deposit (shares will come to executor)
+      const executorSharesBefore = await this.publicClient.readContract({
         address: vaultAddress,
         abi: vaultAbi,
         functionName: 'balanceOf',
-        args: [userAddress],
+        args: [this.account.address],
       }) as bigint;
 
-      console.log(`[VaultInteractions] 📊 User's shares before deposit: ${formatUnits(sharesBefore, decimals)}`);
+      console.log(`[VaultInteractions] 📊 Executor's shares before deposit: ${formatUnits(executorSharesBefore, decimals)}`);
 
-      // Execute deposit - shares go to user, not executor
+      // Execute deposit - shares go to transaction sender (executor account)
       const depositTxHash = await this.walletClient.writeContract({
         address: vaultAddress,
         abi: vaultAbi,
         functionName: 'deposit',
-        args: [atomicAmount, userAddress], // Shares go to user
+        args: [atomicAmount], // Only amount in wei required
         account: this.account,
       });
 
       await this.publicClient.waitForTransactionReceipt({ hash: depositTxHash });
       console.log(`[VaultInteractions] ✅ Deposit confirmed: ${depositTxHash}`);
 
-      // Get user's share balance AFTER deposit
-      const sharesAfter = await this.publicClient.readContract({
+      // Get executor's share balance AFTER deposit
+      const executorSharesAfter = await this.publicClient.readContract({
         address: vaultAddress,
         abi: vaultAbi,
         functionName: 'balanceOf',
-        args: [userAddress],
+        args: [this.account.address],
       }) as bigint;
 
-      // Calculate actual shares received by difference (both are bigint)
-      const actualSharesReceived = sharesAfter - sharesBefore;
+      // Calculate actual shares received by executor
+      const actualSharesReceived = executorSharesAfter - executorSharesBefore;
+      console.log(`[VaultInteractions] 🎯 Shares received by executor: ${formatUnits(actualSharesReceived, decimals)}`);
+
+      // Note: Shares remain with executor, but we track them for the user in our database
+      // This approach avoids complex share transfers and approvals
       const shareTokensHuman = formatUnits(actualSharesReceived, decimals);
-      console.log(`[VaultInteractions] 🎯 Actual shares received: ${shareTokensHuman}`);
+      console.log(`[VaultInteractions] 🎯 Shares received by executor (tracked for user): ${shareTokensHuman}`);
 
       return {
         shareTokens: shareTokensHuman,
@@ -218,33 +201,28 @@ export class VaultInteractions {
       
       const atomicShares = parseUnits(shareAmount, decimals);
       
-      // Get expected assets
-      const expectedAssets = await this.publicClient.readContract({
-        address: vaultAddress,
-        abi: vaultAbi,
-        functionName: 'convertToAssets',
-        args: [atomicShares],
-      });
+      // Note: Executor already owns the shares (tracked in database for user)
+      // No need to transfer shares since executor manages all vault positions
+      console.log(`[VaultInteractions] 🏦 Using executor's vault shares for user withdrawal`);
 
-      console.log(`[VaultInteractions] 📊 Expected assets: ${formatUnits(expectedAssets, decimals)}`);
-
-      // Execute withdrawal - redeem shares for assets
+      // Execute withdrawal - withdraw shares for assets (simplified function)
       const withdrawTxHash = await this.walletClient.writeContract({
         address: vaultAddress,
         abi: vaultAbi,
-        functionName: 'redeem',
-        args: [atomicShares, this.account.address, userAddress], // Assets to executor, shares from user
+        functionName: 'withdraw',
+        args: [atomicShares], // Only shares amount in wei required
         account: this.account,
       });
 
       await this.publicClient.waitForTransactionReceipt({ hash: withdrawTxHash });
       console.log(`[VaultInteractions] ✅ Withdrawal confirmed: ${withdrawTxHash}`);
 
-      const assetsReceivedHuman = formatUnits(expectedAssets, decimals);
-      console.log(`[VaultInteractions] 🎯 Assets received: ${assetsReceivedHuman}`);
+      // Note: Actual assets received will be measured by the calling code
+      // using before/after balance checks for precision
+      console.log(`[VaultInteractions] 🎯 Withdrawal completed for ${shareAmount} shares`);
 
       return {
-        assetsReceived: assetsReceivedHuman,
+        assetsReceived: shareAmount, // Placeholder - actual amount measured by caller
         withdrawTxHash,
         success: true
       };
