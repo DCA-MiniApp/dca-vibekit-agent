@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { prisma, getDatabaseHealth } from '../services/prisma.js';
 import { dcaRoutes } from './routes/dca.js';
+import { prepareSwapRouter } from './routes/dca.prepareSwap.js';
 
 import { statusRoutes } from './routes/status.js';
 
@@ -42,6 +43,7 @@ app.get('/health', async (req, res) => {
 
 // API Routes
 app.use('/api/dca', dcaRoutes);
+app.use('/api/dca', prepareSwapRouter);
 app.use('/api/status', statusRoutes);
 
 // Root endpoint

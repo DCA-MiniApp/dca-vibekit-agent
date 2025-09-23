@@ -528,4 +528,6 @@ router.get('/stats', async (req, res) => {
   }
 });
 
+// Note: /prepare-swap route and SSE helpers moved to dedicated files to keep this router lean
+
 export { router as dcaRoutes };

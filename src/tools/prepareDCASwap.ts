@@ -5,6 +5,11 @@
  * 1. Getting swap plans from Ember MCP
  * 2. Preparing transactions for TriggerX execution
  * 3. Returning transaction data for automated execution
+ *
+ * Examples:
+ * - "Prepare a DCA plan to invest 10 USDC into WETH every week up to 1 month"
+ * - "Create a DCA plan to invest 100 USDC into ETH every week for 6 months"
+ * - "Set up automated DCA investment of 50 USDC to ARB weekly for 3 months"
  */
 
 import type { VibkitToolDefinition } from 'arbitrum-vibekit-core';
@@ -54,19 +59,19 @@ async function retryMcpCall<T>(
     try {
       console.log(`[MCP Retry] 🎯 Attempt ${attempt}/${maxRetries} for ${toolName}`);
       console.log("args", args);
-      const tools = await mcpClient.listTools();
-      console.log("tools", tools);
-      const createSwapTool = tools.tools.find((t: any) => t.name === "createSwap");
+      // const tools = await mcpClient.listTools();
+      // console.log("tools", tools);
+      // const createSwapTool = tools.tools.find((t: any) => t.name === "createSwap");
 
-      console.log(
-        "createSwap.inputSchema",
-        JSON.stringify(createSwapTool.inputSchema, null, 2)
-      );
+      // console.log(
+      //   "createSwap.inputSchema",
+      //   JSON.stringify(createSwapTool.inputSchema, null, 2)
+      // );
 
-      console.log(
-        "createSwap.outputSchema",
-        JSON.stringify(createSwapTool.outputSchema, null, 2)
-      );
+      // console.log(
+      //   "createSwap.outputSchema",
+      //   JSON.stringify(createSwapTool.outputSchema, null, 2)
+      // );
 
       const result = await mcpClient.callTool({
         name: toolName,
@@ -111,7 +116,7 @@ async function retryMcpCall<T>(
 }
 
 const PrepareDCASwapParams = z.object({
-  planId: z.string().describe('DCA plan ID for transaction preparation'),
+  planId: z.string().optional().describe('DCA plan ID for transaction preparation (optional - if not provided, will generate temporary ID)'),
   planDetails: z.object({
     fromToken: z.string().describe('Source token symbol (e.g., USDC)'),
     toToken: z.string().describe('Target token symbol (e.g., ETH)'),
@@ -119,7 +124,14 @@ const PrepareDCASwapParams = z.object({
     userAddress: z.string().describe('User wallet address for the swap'),
     slippage: z.string().optional().default('2').describe('Slippage tolerance percentage'),
   }).describe('Plan details for swap preparation'),
-});
+}).or(z.object({
+  fromToken: z.string().describe('Source token symbol (e.g., USDC)'),
+  toToken: z.string().describe('Target token symbol (e.g., WETH, ETH)'),
+  amount: z.string().describe('Amount to swap in source token units'),
+  userAddress: z.string().describe('User wallet address for the swap'),
+  slippage: z.string().optional().default('2').describe('Slippage tolerance percentage'),
+  planId: z.string().optional().describe('DCA plan ID (optional)'),
+}));
 
 // Removed ROUTER_ADDRESS and retryBlockchainOperation - blockchain operations moved to TriggerX
 
@@ -128,12 +140,23 @@ const PrepareDCASwapParams = z.object({
 // Base prepareDCASwap tool implementation (returns only transactions)
 const basePrepareDCASwapTool: VibkitToolDefinition<typeof PrepareDCASwapParams, any, DCAContext, any> = {
   name: 'prepareDCASwap',
-  description: 'Prepare DCA swap transactions using Ember MCP for TriggerX execution',
+  description: 'PREPARE swap transactions for TriggerX automation. Use this when users say "PREPARE", "SET UP", "AUTOMATE" a DCA plan and need transaction data. Creates swap transactions via Ember MCP - e.g., "Prepare a DCA plan to invest 10 USDC into WETH", "Set up automated investment", "Prepare transactions for DCA"',
   parameters: PrepareDCASwapParams,
   execute: async (args, context) => {
     try {
-      const { planId, planDetails } = args;
-      const { fromToken, toToken, amount, userAddress, slippage } = planDetails;
+      // Handle both parameter formats
+      let planId: string;
+      let fromToken: string, toToken: string, amount: string, userAddress: string, slippage: string;
+      
+      if ('planDetails' in args) {
+        // Format 1: { planId?, planDetails: {...} }
+        planId = args.planId || `temp-${Date.now()}`;
+        ({ fromToken, toToken, amount, userAddress, slippage } = args.planDetails);
+      } else {
+        // Format 2: { fromToken, toToken, amount, userAddress, slippage, planId? }
+        planId = args.planId || `temp-${Date.now()}`;
+        ({ fromToken, toToken, amount, userAddress, slippage } = args);
+      }
 
       console.log(`[DCA Swap] 🔄 Preparing swap for plan ${planId}: ${amount} ${fromToken} → ${toToken}`);
 
@@ -161,30 +184,13 @@ const basePrepareDCASwapTool: VibkitToolDefinition<typeof PrepareDCASwapParams, 
 
       console.log(`[DCA Swap] 🔄 Requesting swap plan with retry mechanism...`);
 
-      // const swapArgs = {
-      //   orderType: 'MARKET_SELL',
-      //   baseToken: {
-      //     chainId: fromTokenDetail.chainId.toString(),
-      //     address: fromTokenDetail.address,
-      //   },
-      //   quoteToken: {
-      //     chainId: toTokenDetail.chainId.toString(),
-      //     address: toTokenDetail.address,
-      //   },
-      //   amount: atomicAmount.toString(),
-      //   recipient: userAddress, // Send swapped tokens to user
-      //   slippageTolerance: slippage,
-      // };
-
       const swapArgs = {
         walletAddress: userAddress,              // string
         fromChain: fromTokenDetail.chainId.toString(), // string
-        // fromChain: "arbitrum", // string
         toChain: toTokenDetail.chainId.toString(),     // string
-        // toChain: "arbitrum",     // string
         fromToken: fromTokenDetail.symbol,      // string (token contract address)
         toToken: toTokenDetail.symbol,          // string (token contract address)
-        amount: atomicAmount.toString(),         // string (amount in wei/atomic units)
+        amount: amount.toString(),         // string (amount in human readable format)
         amountType: "exactIn",                   // or "exactOut"
         // slippageTolerance: "0.5",           // string (percentage or bps depending on API)
       };
@@ -230,17 +236,16 @@ const basePrepareDCASwapTool: VibkitToolDefinition<typeof PrepareDCASwapParams, 
         console.log(`[DCA Swap] 💰 Fees: ${feeBreakdown.total} ${feeBreakdown.feeDenomination}`);
       }
 
-      // Return transactions and additional metadata for TriggerX
-      return {
+      // Return success task with proper format for /sse endpoint
+      const artifactData = {
+        fromToken,
+        toToken,
+        amount,
         planId,
         transactions,
+        userAddress,
+        slippage,
         metadata: {
-          fromToken,
-          toToken,
-          amount,
-          userAddress,
-          slippage,
-          // Additional data from the new response format
           exactFromAmount,
           exactToAmount,
           displayFromAmount,
@@ -250,6 +255,20 @@ const basePrepareDCASwapTool: VibkitToolDefinition<typeof PrepareDCASwapParams, 
           providerTracking,
         }
       };
+
+      const artifact = {
+        artifactId: `prepare-swap-${planId}`,
+        parts: [{
+          kind: 'text' as const,
+          text: JSON.stringify(artifactData, null, 2)
+        }]
+      };
+
+      return createSuccessTask(
+        'prepareDCASwap',
+        [artifact],
+        `✅ Prepared ${transactions.length} transaction(s) for ${amount} ${fromToken} → ${toToken}`
+      );
 
     } catch (error) {
       console.error('[DCA Swap] ❌ Preparation failed:', error);
@@ -261,13 +280,25 @@ const basePrepareDCASwapTool: VibkitToolDefinition<typeof PrepareDCASwapParams, 
 
       // As a catch-all: stringify everything
       console.error("Full error JSON:", JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
-      // Record failed preparation in database
+      // Record failed preparation in database (only if real plan ID)
       try {
-        if (context?.custom?.prisma && args?.planId) {
+        // Extract planId and amount for error logging
+        let errorPlanId: string | undefined;
+        let errorAmount = '0';
+        
+        if ('planDetails' in args) {
+          errorPlanId = args.planId;
+          errorAmount = args.planDetails?.amount || '0';
+        } else {
+          errorPlanId = args.planId;
+          errorAmount = args.amount || '0';
+        }
+        
+        if (context?.custom?.prisma && errorPlanId && !errorPlanId.startsWith('temp-')) {
           await context.custom.prisma.executionHistory.create({
             data: {
-              planId: args.planId,
-              fromAmount: args.planDetails.amount || '0',
+              planId: errorPlanId,
+              fromAmount: errorAmount,
               toAmount: '0',
               exchangeRate: '0',
               gasFee: null,
@@ -281,7 +312,10 @@ const basePrepareDCASwapTool: VibkitToolDefinition<typeof PrepareDCASwapParams, 
       } catch (dbError) {
         console.error('[DCA Swap] ❌ Failed to record preparation error in DB:', dbError);
       }
-      throw error instanceof Error ? error : new Error(`DCA swap preparation failed: ${String(error)}`);
+      return createErrorTask(
+        'prepareDCASwap',
+        error instanceof Error ? error : new Error(`DCA swap preparation failed: ${String(error)}`)
+      );
     }
   },
 };

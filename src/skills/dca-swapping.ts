@@ -28,27 +28,31 @@ const DCASwappingInputSchema = z.object({
 export const dcaSwappingSkill = defineSkill({
   id: 'dca-swapping',
   name: 'DCA Swapping',
-  description: 'Automated Dollar Cost Averaging (DCA) investment strategies with natural language processing. Create, manage, and monitor DCA plans using simple conversational commands.',
-  tags: ['dca', 'automation', 'investment', 'crypto', 'natural-language'],
+  description: 'Automated Dollar Cost Averaging (DCA) investment strategies with natural language processing. Prepare DCA swap transactions for TriggerX automated execution. Create, manage, and monitor DCA plans using simple conversational commands.',
+  tags: ['dca', 'automation', 'investment', 'crypto', 'natural-language', 'triggerx'],
   examples: [
-    'Create a DCA plan to invest 100 USDC into ETH every week for 6 months',
+    'PREPARE a swap tx for 100 USDC to WETH',
+    'Set up automated DCA investment of 50 USDC to ARB weekly for 3 months',
+    'Prepare a swap tx for 100 USDC to WETH',
+    'Automate my weekly ETH purchases with 25 USDC',
+    'Prepare transactions for DCA plan execution',
+    'Create a DCA plan record in database for 100 USDC to WETH',
     'Show me my active DCA plans and their performance',
     'Pause my USDC to ETH DCA plan',
     'How is my DCA strategy performing this month?',
-    'Invest 0.1 WETH daily in ARB tokens for 1 month',
     'Cancel my DAI to BTC investment plan',
     'Resume my weekly ETH purchases',
     'What are the platform statistics?',
     'Check my DCA execution history',
-    'Create a conservative investment strategy with 50 USDC weekly into BTC for 3 months',
+    'Add a new investment plan to my portfolio',
   ],
   inputSchema: DCASwappingInputSchema,
   tools: [
-    createDCAPlanTool,
+    prepareDCASwapTool, // FIRST PRIORITY: DCA swap preparation for TriggerX execution
+    createDCAPlanTool, // Database record creation only
     getUserDCAPlans,
     updateDCAPlanStatus,
     getDCAExecutionHistory,
     getPlatformStats,
-    prepareDCASwapTool, // DCA swap preparation for TriggerX execution
   ],
 });

@@ -19,7 +19,7 @@ import {
  */
 export const createDCAPlanTool: VibkitToolDefinition<any, any, DCAContext, any> = {
   name: 'createDCAPlan',
-  description: 'Create a new Dollar Cost Averaging (DCA) plan for automated investment',
+  description: 'Create a new DCA plan database record only (without transaction preparation). Use this for basic plan creation when you do NOT need transaction data - e.g., "Create a DCA plan record", "Set up a new investment plan", "Add a plan to database"',
   parameters: CreateDCAPlanSchema,
   execute: async (params: CreateDCAPlanRequest, context) => {
     const { userAddress, fromToken, toToken, amount, intervalMinutes, durationWeeks, slippage } = params;
