@@ -21,9 +21,9 @@ export const CreateDCAPlanSchema = z.object({
     .max(43200) // Max 30 days
     .describe('Execution interval in minutes'),
   durationWeeks: z.number()
-    // .min(1)
-    // .max(260) // Max 5 years
-    .describe('Total investment duration in weeks'),
+    .min(0.1) // Minimum 0.1 weeks (about 17 hours)
+    .max(260) // Max 5 years
+    .describe('Total investment duration in weeks (supports fractional values like 0.5, 1.25, etc.)'),
   slippage: z.string()
     .regex(/^\d+(\.\d+)?$/, 'Slippage must be a valid number')
     .optional()

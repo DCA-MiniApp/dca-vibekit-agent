@@ -17,7 +17,7 @@ model DcaPlan {
   toToken          String   @map("to_token") @db.VarChar(10)
   amount           Decimal  @db.Decimal(36, 18)
   intervalMinutes  Int      @map("interval_minutes")
-  durationWeeks    Int      @map("duration_weeks")
+  durationWeeks    Decimal  @map("duration_weeks") @db.Decimal(16, 8)
   status           DcaStatus @default(ACTIVE)
   nextExecution    DateTime? @map("next_execution") @db.Timestamptz
   executionCount   Int      @default(0) @map("execution_count")
