@@ -13,6 +13,7 @@ datasource db {
 model DcaPlan {
   id               String   @id @default(cuid())
   userAddress      String   @map("user_address") @db.VarChar(42)
+  fid              Int?     @map("fid") 
   fromToken        String   @map("from_token") @db.VarChar(10)
   toToken          String   @map("to_token") @db.VarChar(10)
   amount           Decimal  @db.Decimal(36, 18)
