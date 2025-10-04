@@ -141,24 +141,7 @@ router.get("/plans/:userAddress", async (req, res) => {
     // Fetch job data for each plan (in parallel)
     const formattedPlans: DCAPlanResponse[] = await Promise.all(
       dcaPlans.map(
-        async (plan: {
-          jobId: string;
-          id: any;
-          userAddress: any;
-          fromToken: any;
-          toToken: any;
-          amount: { toString: () => any };
-          intervalMinutes: any;
-          durationWeeks: { toString: () => string };
-          status: any;
-          nextExecution: { toISOString: () => any };
-          executionCount: any;
-          totalExecutions: any;
-          slippage: { toString: () => any };
-          ipfsLink: any;
-          createdAt: { toISOString: () => any };
-          updatedAt: { toISOString: () => any };
-        }) => {
+        async (plan) => {
           let jobData = null;
           if (plan.jobId) {
             try {
@@ -420,19 +403,7 @@ router.get("/user/:userAddress/history", async (req, res) => {
     });
 
     const formattedExecutions = executions.map(
-      (execution: {
-        id: any;
-        planId: any;
-        executedAt: { toISOString: () => any };
-        fromAmount: { toString: () => any };
-        toAmount: { toString: () => any };
-        exchangeRate: { toString: () => any };
-        gasFee: { toString: () => any };
-        txHash: any;
-        status: any;
-        errorMessage: any;
-        plan: { id: any; fromToken: any; toToken: any };
-      }) => ({
+      (execution) => ({
         id: execution.id,
         planId: execution.planId,
         executedAt: execution.executedAt.toISOString(),
@@ -500,18 +471,7 @@ router.get("/history/:planId", async (req, res) => {
     });
 
     const formattedExecutions = executions.map(
-      (execution: {
-        id: any;
-        planId: any;
-        executedAt: { toISOString: () => any };
-        fromAmount: { toString: () => any };
-        toAmount: { toString: () => any };
-        exchangeRate: { toString: () => any };
-        gasFee: { toString: () => any };
-        txHash: any;
-        status: any;
-        errorMessage: any;
-      }) => ({
+      (execution) => ({
         id: execution.id,
         planId: execution.planId,
         executedAt: execution.executedAt.toISOString(),
@@ -670,7 +630,8 @@ router.get("/users/failed-tasks", async (req, res) => {
     const failedTasks: { userAddress: string; jobId: string; taskId: number; txUrl: string }[] = [];
 
     await Promise.all(
-      users.map(async (user: { jobId: string; userAddress: any; }) => {
+      users.map(async (user: { userAddress: string; jobId: string | null }) => {
+        if (!user.jobId) return; // Skip if jobId is null
         try {
           const jobDataResp = await getJobDataById(triggerxClient, user.jobId);
           console.log(`Job data for user ${user.userAddress}, jobId ${user.jobId}:`, jobDataResp);
@@ -679,7 +640,7 @@ router.get("/users/failed-tasks", async (req, res) => {
               if (task.task_status === "failed") {
                 failedTasks.push({
                   userAddress: user.userAddress,
-                  jobId: user.jobId!,
+                  jobId: user.jobId ?? "",
                   taskId: task.task_id,
                   txUrl: task.tx_url || "",
                 });
@@ -707,6 +668,44 @@ router.get("/users/failed-tasks", async (req, res) => {
   }
 });
 
-// Note: /prepare-swap route and SSE helpers moved to dedicated files to keep this router lean
+// Update jobId to null for a user
+router.put("/jobupdate/:userAddress", async (req, res) => {
+  try {
+    const { userAddress } = req.params;
+    const { jobId } = req.body;
+    console.log(`Updating jobId for user ${userAddress} to null`);
+
+    if (!userAddress || !jobId) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing userAddress or jobId",
+      });
+    }
+
+    // Update only the record where both userAddress and jobId match
+    const result = await prisma.dcaPlan.updateMany({
+      where: {
+        userAddress,
+        jobId,
+      },
+      data: {
+        jobId: null,
+        updatedAt: new Date(),
+      },
+    });
+
+    res.json({
+      success: true,
+      message: `Updated ${result.count} DCA plan(s) for user ${userAddress} with jobId ${jobId}, set jobId to null.`,
+    });
+  } catch (error) {
+    console.error("Error updating jobId for user:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to update jobId for user",
+    });
+  }
+});
 
 export { router as dcaRoutes };
