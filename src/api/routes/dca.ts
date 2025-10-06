@@ -122,6 +122,7 @@ router.get("/plans/:userAddress", async (req, res) => {
     const dcaPlans = await prisma.dcaPlan.findMany({
       where: {
         userAddress: userAddress,
+        status:"ACTIVE"
       },
       orderBy: {
         createdAt: "desc",
@@ -368,77 +369,67 @@ router.put("/plans/:planId", async (req, res) => {
 router.get("/user/:userAddress/history", async (req, res) => {
   try {
     const { userAddress } = req.params;
-    const { limit = "50", offset = "0" } = req.query;
 
     // Validate Ethereum address format
     if (!/^0x[a-fA-F0-9]{40}$/.test(userAddress)) {
-      const response: ApiResponse = {
+      return res.status(400).json({
         success: false,
         error: "Invalid Address",
         message: "Invalid Ethereum address format",
-      };
-      return res.status(400).json(response);
+      });
     }
 
-    // Get execution history for all user's plans
-    const executions = await prisma.executionHistory.findMany({
-      where: {
-        plan: {
-          userAddress: userAddress,
-        },
-      },
-      include: {
-        plan: {
-          select: {
-            id: true,
-            fromToken: true,
-            toToken: true,
-            userAddress: true,
-          },
-        },
-      },
-      orderBy: { executedAt: "desc" },
-      take: parseInt(limit as string),
-      skip: parseInt(offset as string),
+    // 1. Get all DCA plans for the user
+    const dcaPlans = await prisma.dcaPlan.findMany({
+      where: { userAddress },
+      orderBy: { createdAt: "desc" },
     });
 
-    const formattedExecutions = executions.map(
-      (execution) => ({
-        id: execution.id,
-        planId: execution.planId,
-        executedAt: execution.executedAt.toISOString(),
-        fromAmount: execution.fromAmount.toString(),
-        toAmount: execution.toAmount.toString(),
-        exchangeRate: execution.exchangeRate.toString(),
-        gasFee: execution.gasFee?.toString() || null,
-        txHash: execution.txHash,
-        status: execution.status,
-        errorMessage: execution.errorMessage,
-        // Include plan details for token pair display
-        plan: {
-          id: execution.plan.id,
-          fromToken: execution.plan.fromToken,
-          toToken: execution.plan.toToken,
-        },
+    const triggerxClient = new TriggerXClient(process.env.TRIGGERX_API_KEY || "");
+
+    // 2. For each plan, fetch job data and extract task info
+    const history: any[] = [];
+
+    await Promise.all(
+      dcaPlans.map(async (plan) => {
+        if (plan.jobId) {
+          try {
+            const jobDataResp = await getJobDataById(triggerxClient, plan.jobId);
+            console.log("Line 398:",jobDataResp);
+            if (jobDataResp && Array.isArray(jobDataResp.taskData)) {
+              jobDataResp.taskData.forEach((task: any) => {
+                history.push({
+                  fromToken: plan.fromToken,
+                  toToken: plan.toToken,
+                  amount: plan.amount.toString(),
+                  jobId: plan.jobId,
+                  taskId: task.task_id,
+                  executionTimestamp: task.execution_timestamp,
+                  executionTxHash: task.execution_tx_hash,
+                  taskStatus: task.task_status,
+                  txUrl: task.tx_url,
+                });
+              });
+            }
+          } catch (err) {
+            console.warn(`Failed to fetch job data for jobId ${plan.jobId}:`, err);
+          }
+        }
       })
     );
 
-    const response: ApiResponse = {
+    res.json({
       success: true,
-      data: formattedExecutions,
-      message: `Found ${formattedExecutions.length} executions`,
-    };
-
-    res.json(response);
+      data: history,
+      message: `Found ${history.length} task executions for user ${userAddress}`,
+    });
   } catch (error) {
-    console.error("Error fetching user execution history:", error);
-
-    const response: ApiResponse = {
+    console.error("Error fetching user job/task history:", error);
+    res.status(500).json({
       success: false,
       error: "Internal Server Error",
-      message: "Failed to fetch execution history",
-    };
-    res.status(500).json(response);
+      message: "Failed to fetch user job/task history",
+    });
   }
 });
 
@@ -689,7 +680,7 @@ router.put("/jobupdate/:userAddress", async (req, res) => {
         jobId,
       },
       data: {
-        jobId: null,
+        status:"CANCELLED",
         updatedAt: new Date(),
       },
     });
@@ -704,6 +695,65 @@ router.put("/jobupdate/:userAddress", async (req, res) => {
       success: false,
       error: "Internal Server Error",
       message: "Failed to update jobId for user",
+    });
+  }
+});
+
+router.post("/user", async (req, res) => {
+  try {
+    const {
+      fid,
+      userAddress,
+      username,
+      pfpUrl,
+      joinedAt,
+      isWelcomed,
+      notificationToken,
+      isNotification,
+    } = req.body;
+
+    // Basic validation (expand as needed)
+    if (!fid || !userAddress) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required fields: fid or userAddress",
+      });
+    }
+
+    const user = await prisma.user.upsert({
+      where: { fid },
+      update: {
+        userAddress,
+        username,
+        pfpUrl,
+        joinedAt: joinedAt ? new Date(joinedAt) : undefined,
+        isWelcomed,
+        notificationToken,
+        isNotification,
+      },
+      create: {
+        fid,
+        userAddress,
+        username,
+        pfpUrl,
+        joinedAt: joinedAt ? new Date(joinedAt) : undefined,
+        isWelcomed: isWelcomed ?? false,
+        notificationToken,
+        isNotification: isNotification ?? false,
+      },
+    });
+
+    res.json({
+      success: true,
+      data: user,
+      message: "User stored successfully",
+    });
+  } catch (error) {
+    console.error("Error storing user:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to store user",
     });
   }
 });
