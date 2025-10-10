@@ -123,7 +123,8 @@ router.get("/plans/:userAddress", async (req, res) => {
     const dcaPlans = await prisma.dcaPlan.findMany({
       where: {
         userAddress: userAddress,
-        status:"ACTIVE"
+        status:"ACTIVE",
+        jobId:{ not: null}
       },
       orderBy: {
         createdAt: "desc",
@@ -755,6 +756,55 @@ router.post("/user", async (req, res) => {
       success: false,
       error: "Internal Server Error",
       message: "Failed to store user",
+    });
+  }
+});
+
+// Update notification details for a user by fid
+router.post("/token-notification", async (req, res) => {
+  try {
+    const { fid, notificationtoken, notificationurl } = req.body as {
+      fid?: string;
+      notificationtoken?: string;
+      notificationurl?: string;
+    };
+
+    if (!fid) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing required field: fid",
+      });
+    }
+
+    // Ensure record exists
+    const existing = await prisma.user.findUnique({ where: { fid } });
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found for provided fid",
+      });
+    }
+
+    const updated = await prisma.user.update({
+      where: { fid },
+      data: {
+        notificationToken: notificationtoken ?? undefined,
+        // @ts-expect-error Ensure Prisma Client is regenerated to include notificationUrl
+        notificationUrl: notificationurl ?? undefined,
+      },
+    });
+
+    return res.json({
+      success: true,
+      data: updated,
+      message: "Notification details updated",
+    });
+  } catch (error) {
+    console.error("Error updating token notification:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to update notification details",
     });
   }
 });

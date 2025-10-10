@@ -76,6 +76,7 @@ model User {
   joinedAt          DateTime?
   isWelcomed        Boolean  @default(false)
   notificationToken String?
+  notificationUrl   String?  @map("notification_url")
   isNotification    Boolean  @default(false)
   @@map("user")
 }
