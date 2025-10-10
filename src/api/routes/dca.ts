@@ -10,7 +10,8 @@ import {
 } from "../../types/shared.js";
 // import { getJobDataById } from "sdk-triggerx";
 import { TriggerXClient } from "sdk-triggerx";
-import { getJobDataById } from "sdk-triggerx/dist/api/getJobDataById.js";
+// import { getJobDataById } from "sdk-triggerx/dist/api/getJobDataById.js";
+import { getJobDataById } from "sdk-triggerx";
 
 const router: Router = Router();
 
