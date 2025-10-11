@@ -1,100 +1,116 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 // DCA Plan Creation Schema
 export const CreateDCAPlanSchema = z.object({
-  userAddress: z.string()
-    .regex(/^0x[a-fA-F0-9]{40}$/, 'Invalid Ethereum address')
-    .describe('User wallet address'),
-  fromToken: z.string()
+  userAddress: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{40}$/, "Invalid Ethereum address")
+    .describe("User wallet address"),
+  fromToken: z
+    .string()
     .min(1)
     .max(10)
-    .describe('Source token symbol (e.g., USDC)'),
-  toToken: z.string()
+    .describe("Source token symbol (e.g., USDC)"),
+  toToken: z
+    .string()
     .min(1)
     .max(10)
-    .describe('Target token symbol (e.g., ETH)'),
-  amount: z.string()
-    .regex(/^\d+(\.\d+)?$/, 'Amount must be a valid number')
-    .describe('Investment amount per execution'),
-  intervalMinutes: z.number()
+    .describe("Target token symbol (e.g., ETH)"),
+  amount: z
+    .string()
+    .regex(/^\d+(\.\d+)?$/, "Amount must be a valid number")
+    .describe("Investment amount per execution"),
+  intervalMinutes: z
+    .number()
     .min(2)
     .max(43200) // Max 30 days
-    .describe('Execution interval in minutes'),
-  durationWeeks: z.number()
-    .min(0.1) // Minimum 0.1 weeks (about 17 hours)
+    .describe("Execution interval in minutes"),
+  durationWeeks: z
+    .number()
+    .min(0.006) // Minimum 0.006 weeks (about 1 hour: 1/168)
     .max(260) // Max 5 years
-    .describe('Total investment duration in weeks (supports fractional values like 0.5, 1.25, etc.)'),
-  slippage: z.string()
-    .regex(/^\d+(\.\d+)?$/, 'Slippage must be a valid number')
+    .describe(
+      "Total investment duration in weeks (supports fractional values like 0.5, 1.25, etc.)"
+    ),
+  slippage: z
+    .string()
+    .regex(/^\d+(\.\d+)?$/, "Slippage must be a valid number")
     .optional()
-    .default('2')
-    .describe('Slippage tolerance in percentage (default: 2%)'),
+    .default("2")
+    .describe("Slippage tolerance in percentage (default: 2%)"),
+  fid: z.string().optional().describe("Fid for the user"),
 });
 
 export type CreateDCAPlanRequest = z.infer<typeof CreateDCAPlanSchema>;
 
 // DCA Plan Update Schema
 export const UpdateDCAPlanSchema = z.object({
-  status: z.enum(['ACTIVE', 'PAUSED', 'CANCELLED'])
+  status: z
+    .enum(["ACTIVE", "PAUSED", "CANCELLED"])
     .optional()
-    .describe('Updated plan status'),
+    .describe("Updated plan status"),
 });
 
 export type UpdateDCAPlanRequest = z.infer<typeof UpdateDCAPlanSchema>;
 
 // DCA Plan Update Details Schema (for jobId and ipfsLink)
 export const UpdateDCAPlanDetailsSchema = z.object({
-  jobId: z.string().optional().describe('TriggerX job ID for the plan'),
-  ipfsLink: z.string().optional().describe('IPFS link for plan metadata'),
+  jobId: z.string().optional().describe("TriggerX job ID for the plan"),
+  ipfsLink: z.string().optional().describe("IPFS link for plan metadata"),
 });
 
-export type UpdateDCAPlanDetailsRequest = z.infer<typeof UpdateDCAPlanDetailsSchema>;
+export type UpdateDCAPlanDetailsRequest = z.infer<
+  typeof UpdateDCAPlanDetailsSchema
+>;
 
 // Get User DCA Plans Schema
 export const GetUserDCAPlansSchema = z.object({
-  userAddress: z.string()
-    .regex(/^0x[a-fA-F0-9]{40}$/, 'Invalid Ethereum address')
-    .describe('User wallet address to get plans for'),
+  userAddress: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{40}$/, "Invalid Ethereum address")
+    .describe("User wallet address to get plans for"),
 });
 
 export type GetUserDCAPlansRequest = z.infer<typeof GetUserDCAPlansSchema>;
 
 // Update DCA Plan Status Schema
 export const UpdateDCAPlanStatusSchema = z.object({
-  planId: z.string()
-    .min(1)
-    .describe('DCA plan ID to update'),
-  status: z.enum(['ACTIVE', 'PAUSED', 'CANCELLED'])
-    .describe('New status for the DCA plan'),
+  planId: z.string().min(1).describe("DCA plan ID to update"),
+  status: z
+    .enum(["ACTIVE", "PAUSED", "CANCELLED"])
+    .describe("New status for the DCA plan"),
 });
 
-export type UpdateDCAPlanStatusRequest = z.infer<typeof UpdateDCAPlanStatusSchema>;
+export type UpdateDCAPlanStatusRequest = z.infer<
+  typeof UpdateDCAPlanStatusSchema
+>;
 
 // Get DCA Execution History Schema
 export const GetDCAExecutionHistorySchema = z.object({
-  planId: z.string()
-    .min(1)
-    .describe('DCA plan ID to get history for'),
-  limit: z.number()
+  planId: z.string().min(1).describe("DCA plan ID to get history for"),
+  limit: z
+    .number()
     .min(1)
     .max(100)
     .optional()
     .default(50)
-    .describe('Maximum number of executions to return (default: 50)'),
-  offset: z.number()
+    .describe("Maximum number of executions to return (default: 50)"),
+  offset: z
+    .number()
     .min(0)
     .optional()
     .default(0)
-    .describe('Number of executions to skip for pagination (default: 0)'),
+    .describe("Number of executions to skip for pagination (default: 0)"),
 });
 
-export type GetDCAExecutionHistoryRequest = z.infer<typeof GetDCAExecutionHistorySchema>;
+export type GetDCAExecutionHistoryRequest = z.infer<
+  typeof GetDCAExecutionHistorySchema
+>;
 
 // Get Platform Stats Schema (empty schema for consistency)
 export const GetPlatformStatsSchema = z.object({});
 
 export type GetPlatformStatsRequest = z.infer<typeof GetPlatformStatsSchema>;
-
 
 // Response Types
 export interface DCAPlanResponse {
@@ -105,7 +121,7 @@ export interface DCAPlanResponse {
   amount: string;
   intervalMinutes: number;
   durationWeeks: number;
-  status: 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'CANCELLED';
+  status: "ACTIVE" | "PAUSED" | "COMPLETED" | "CANCELLED";
   nextExecution: string | null;
   executionCount: number;
   totalExecutions: number;
@@ -125,7 +141,7 @@ export interface ExecutionHistoryResponse {
   exchangeRate: string;
   gasFee: string | null;
   txHash: string | null;
-  status: 'SUCCESS' | 'FAILED' | 'PENDING';
+  status: "SUCCESS" | "FAILED" | "PENDING";
   errorMessage: string | null;
 }
 
@@ -188,36 +204,46 @@ export const CreateSwapResponseSchema = z.object({
   displayFromAmount: z.string(),
   exactToAmount: z.string(),
   displayToAmount: z.string(),
-  transactions: z.array(z.object({
-    type: z.enum(['TRANSACTION_TYPE_UNSPECIFIED', 'EVM_TX', 'SOLANA_TX']),
-    to: z.string(),
-    data: z.string(),
-    value: z.string(),
-    chainId: z.string(),
-  })),
-  feeBreakdown: z.object({
-    serviceFee: z.string(),
-    slippageCost: z.string(),
-    total: z.string(),
-    feeDenomination: z.string(),
-  }).optional(),
-  estimation: z.object({
-    effectivePrice: z.string(),
-    timeEstimate: z.string(),
-    expiration: z.string(),
-  }).optional(),
-  providerTracking: z.object({
-    requestId: z.string(),
-    providerName: z.string(),
-    explorerUrl: z.string(),
-  }).optional(),
+  transactions: z.array(
+    z.object({
+      type: z.enum(["TRANSACTION_TYPE_UNSPECIFIED", "EVM_TX", "SOLANA_TX"]),
+      to: z.string(),
+      data: z.string(),
+      value: z.string(),
+      chainId: z.string(),
+    })
+  ),
+  feeBreakdown: z
+    .object({
+      serviceFee: z.string(),
+      slippageCost: z.string(),
+      total: z.string(),
+      feeDenomination: z.string(),
+    })
+    .optional(),
+  estimation: z
+    .object({
+      effectivePrice: z.string(),
+      timeEstimate: z.string(),
+      expiration: z.string(),
+    })
+    .optional(),
+  providerTracking: z
+    .object({
+      requestId: z.string(),
+      providerName: z.string(),
+      explorerUrl: z.string(),
+    })
+    .optional(),
 });
 
 export type CreateSwapResponse = z.infer<typeof CreateSwapResponseSchema>;
 
 // Additional types for better type safety
-export type SwapTransaction = CreateSwapResponse['transactions'][0];
-export type SwapFeeBreakdown = NonNullable<CreateSwapResponse['feeBreakdown']>;
-export type SwapEstimation = NonNullable<CreateSwapResponse['estimation']>;
-export type SwapProviderTracking = NonNullable<CreateSwapResponse['providerTracking']>;
-export type SwapToken = CreateSwapResponse['fromToken'];
+export type SwapTransaction = CreateSwapResponse["transactions"][0];
+export type SwapFeeBreakdown = NonNullable<CreateSwapResponse["feeBreakdown"]>;
+export type SwapEstimation = NonNullable<CreateSwapResponse["estimation"]>;
+export type SwapProviderTracking = NonNullable<
+  CreateSwapResponse["providerTracking"]
+>;
+export type SwapToken = CreateSwapResponse["fromToken"];

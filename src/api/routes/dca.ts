@@ -52,6 +52,7 @@ router.post("/create", async (req, res) => {
         status: "ACTIVE",
         jobId: null, // Initially null, will be updated when job is created
         ipfsLink: null, // Initially null, will be updated when IPFS link is created
+        fid: validatedData.fid ? parseInt(validatedData.fid) : null,
       },
     });
 
@@ -789,7 +790,6 @@ router.post("/token-notification", async (req, res) => {
       where: { fid },
       data: {
         notificationToken: notificationtoken ?? undefined,
-        // @ts-expect-error Ensure Prisma Client is regenerated to include notificationUrl
         notificationUrl: notificationurl ?? undefined,
       },
     });

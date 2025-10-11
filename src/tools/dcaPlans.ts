@@ -22,10 +22,10 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any, DCAContext, any> 
   description: 'Create a new DCA plan database record only (without transaction preparation). Use this for basic plan creation when you do NOT need transaction data - e.g., "Create a DCA plan record", "Set up a new investment plan", "Add a plan to database"',
   parameters: CreateDCAPlanSchema,
   execute: async (params: CreateDCAPlanRequest, context) => {
-    const { userAddress, fromToken, toToken, amount, intervalMinutes, durationWeeks, slippage } = params;
+    const { userAddress, fromToken, toToken, amount, intervalMinutes, durationWeeks, slippage,fid } = params;
 
     console.log('🔥🔥🔥 [TOOL] createDCAPlan CALLED!');
-    console.log('🔥🔥🔥 [TOOL] Args:', { userAddress, fromToken, toToken, amount, intervalMinutes, durationWeeks, slippage });
+    console.log('🔥🔥🔥 [TOOL] Args:', { userAddress, fromToken, toToken, amount, intervalMinutes, durationWeeks, slippage,fid });
 
     try {
       const API_PORT = parseInt(process.env.API_PORT || '3002', 10);
@@ -42,6 +42,7 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any, DCAContext, any> 
           intervalMinutes,
           durationWeeks,
           slippage: slippage || '2',
+          fid,
         }),
       });
 
