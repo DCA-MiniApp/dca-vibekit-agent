@@ -57,6 +57,7 @@ export type UpdateDCAPlanRequest = z.infer<typeof UpdateDCAPlanSchema>;
 export const UpdateDCAPlanDetailsSchema = z.object({
   jobId: z.string().optional().describe("TriggerX job ID for the plan"),
   ipfsLink: z.string().optional().describe("IPFS link for plan metadata"),
+  fid: z.number().optional().describe("Fid of user"),
 });
 
 export type UpdateDCAPlanDetailsRequest = z.infer<
