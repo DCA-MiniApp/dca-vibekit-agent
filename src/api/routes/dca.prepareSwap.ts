@@ -42,7 +42,7 @@ prepareSwapRouter.post('/prepare-swap', async (req, res) => {
       }
     };
 
-    const response = await fetch(`http://localhost:3030/messages?sessionId=${sessionId}`, {
+    const response = await fetch(`https://dca-backend.udonswap.org/messages?sessionId=${sessionId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
