@@ -143,7 +143,7 @@ router.get("/plans/:userAddress", async (req, res) => {
 
     // Fetch job data for each plan (in parallel)
     const formattedPlans: DCAPlanResponse[] = await Promise.all(
-      dcaPlans.map(async (plan) => {
+      dcaPlans.map(async (plan: { jobId: string; id: any; userAddress: any; fromToken: any; toToken: any; amount: { toString: () => any; }; intervalMinutes: any; durationWeeks: { toString: () => string; }; status: any; nextExecution: { toISOString: () => any; }; executionCount: any; totalExecutions: any; slippage: { toString: () => any; }; ipfsLink: any; createdAt: { toISOString: () => any; }; updatedAt: { toISOString: () => any; }; }) => {
         let jobData = null;
         if (plan.jobId) {
           try {
@@ -373,6 +373,7 @@ router.put("/plans/:planId", async (req, res) => {
 router.get("/user/:userAddress/history", async (req, res) => {
   try {
     const { userAddress } = req.params;
+    console.log(`Fetching job/task history for user: ${userAddress}`);
 
     // Validate Ethereum address format
     if (!/^0x[a-fA-F0-9]{40}$/.test(userAddress)) {
@@ -397,7 +398,7 @@ router.get("/user/:userAddress/history", async (req, res) => {
     const history: any[] = [];
 
     await Promise.all(
-      dcaPlans.map(async (plan) => {
+      dcaPlans.map(async (plan: { jobId: string; fromToken: any; toToken: any; amount: { toString: () => any; }; }) => {
         if (plan.jobId) {
           try {
             const jobDataResp = await getJobDataById(
@@ -473,7 +474,7 @@ router.get("/history/:planId", async (req, res) => {
       skip: parseInt(offset as string),
     });
 
-    const formattedExecutions = executions.map((execution) => ({
+    const formattedExecutions = executions.map((execution: { id: any; planId: any; executedAt: { toISOString: () => any; }; fromAmount: { toString: () => any; }; toAmount: { toString: () => any; }; exchangeRate: { toString: () => any; }; gasFee: { toString: () => any; }; txHash: any; status: any; errorMessage: any; }) => ({
       id: execution.id,
       planId: execution.planId,
       executedAt: execution.executedAt.toISOString(),

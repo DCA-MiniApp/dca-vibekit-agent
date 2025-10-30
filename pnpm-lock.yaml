@@ -54,8 +54,8 @@ importers:
         specifier: ^6.1.0
         version: 6.14.0(typescript@5.9.2)
       sdk-triggerx:
-        specifier: ^0.1.16
-        version: 0.1.16
+        specifier: ^0.1.22
+        version: 0.1.22
       viem:
         specifier: ^2.26.3
         version: 2.34.0(typescript@5.9.2)(zod@3.25.76)
@@ -1600,8 +1600,8 @@ packages:
   safer-buffer@2.1.2:
     resolution: {integrity: sha512-YZo3K82SD7Riyi0E1EQPojLz7kpepnSQI9IyPbHHg1XXXevb5dJI7tpyN2ADxGcQbHG7vcyRHk0cbwqcQriUtg==}
 
-  sdk-triggerx@0.1.16:
-    resolution: {integrity: sha512-IzHQ4YtbdjLuSnpNH6nNrDKiVcCQptFQHvLz2K15JBbzqGDc+2YxXrBSpQ0FjqAdd44ONkA9UGtg2aBVZl5dsw==}
+  sdk-triggerx@0.1.22:
+    resolution: {integrity: sha512-wmFygv+TaPM3oHYQ08jikra0XfMawh7oRopXPQ+U57nx1EKYc7hK8oZ2AIkbmogkmLEkpXHqEPpsnSNH7S11UA==}
 
   secure-json-parse@2.7.0:
     resolution: {integrity: sha512-6aU+Rwsezw7VR8/nyvKTx8QpWH9FrcYiXXlqC4z5d5XQBDRqtbfsRjnwGyqbi3gddNtWHuEk9OANUotL26qKUw==}
@@ -3392,7 +3392,7 @@ snapshots:
 
   safer-buffer@2.1.2: {}
 
-  sdk-triggerx@0.1.16:
+  sdk-triggerx@0.1.22:
     dependencies:
       axios: 1.12.2
       ethers: 6.15.0
