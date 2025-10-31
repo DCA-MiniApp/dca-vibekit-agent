@@ -34,7 +34,6 @@ router.post("/create", async (req, res) => {
     const amount = validatedData.amount;
     const slippage = parseFloat(validatedData.slippage || "2"); // Convert percentage to decimal
 
-
     // Create DCA plan in database
     const dcaPlan = await prisma.dcaPlan.create({
       data: {
@@ -143,7 +142,7 @@ router.get("/plans/:userAddress", async (req, res) => {
 
     // Fetch job data for each plan (in parallel)
     const formattedPlans: DCAPlanResponse[] = await Promise.all(
-      dcaPlans.map(async (plan: { jobId: string; id: any; userAddress: any; fromToken: any; toToken: any; amount: { toString: () => any; }; intervalMinutes: any; durationWeeks: { toString: () => string; }; status: any; nextExecution: { toISOString: () => any; }; executionCount: any; totalExecutions: any; slippage: { toString: () => any; }; ipfsLink: any; createdAt: { toISOString: () => any; }; updatedAt: { toISOString: () => any; }; }) => {
+      dcaPlans.map(async (plan) => {
         let jobData = null;
         if (plan.jobId) {
           try {
@@ -230,7 +229,7 @@ router.put("/plans/:planId/details", async (req, res) => {
       updateData.ipfsLink = validatedData.ipfsLink;
     }
 
-    if(validatedData.fid !== undefined) {
+    if (validatedData.fid !== undefined) {
       updateData.fid = validatedData.fid;
     }
 
@@ -398,7 +397,7 @@ router.get("/user/:userAddress/history", async (req, res) => {
     const history: any[] = [];
 
     await Promise.all(
-      dcaPlans.map(async (plan: { jobId: string; fromToken: any; toToken: any; amount: { toString: () => any; }; }) => {
+      dcaPlans.map(async (plan) => {
         if (plan.jobId) {
           try {
             const jobDataResp = await getJobDataById(
@@ -406,8 +405,8 @@ router.get("/user/:userAddress/history", async (req, res) => {
               plan.jobId
             );
             console.log("Line 398:", jobDataResp);
-            if (jobDataResp && Array.isArray(jobDataResp.taskData)) {
-              jobDataResp.taskData.forEach((task: any) => {
+            if (jobDataResp && Array.isArray(jobDataResp.data?.taskData)) {
+              jobDataResp.data?.taskData.forEach((task: any) => {
                 history.push({
                   fromToken: plan.fromToken,
                   toToken: plan.toToken,
@@ -474,7 +473,7 @@ router.get("/history/:planId", async (req, res) => {
       skip: parseInt(offset as string),
     });
 
-    const formattedExecutions = executions.map((execution: { id: any; planId: any; executedAt: { toISOString: () => any; }; fromAmount: { toString: () => any; }; toAmount: { toString: () => any; }; exchangeRate: { toString: () => any; }; gasFee: { toString: () => any; }; txHash: any; status: any; errorMessage: any; }) => ({
+    const formattedExecutions = executions.map((execution) => ({
       id: execution.id,
       planId: execution.planId,
       executedAt: execution.executedAt.toISOString(),
@@ -641,34 +640,43 @@ router.get("/users/failed-tasks", async (req, res) => {
     }[] = [];
 
     await Promise.all(
-      users.map(async (user: { userAddress: string; jobId: string | null; fid: number | null }) => {
-        if (!user.jobId) return; // Skip if jobId is null
-        try {
-          const jobDataResp = await getJobDataById(triggerxClient, user.jobId);
-          console.log(
-            `Job data for user ${user.userAddress}, jobId ${user.jobId}:`,
-            jobDataResp
-          );
-          if (jobDataResp && Array.isArray(jobDataResp.taskData)) {
-            jobDataResp.taskData.forEach((task: any) => {
-              if (task.task_status === "failed") {
-                failedTasks.push({
-                  userAddress: user.userAddress,
-                  jobId: user.jobId ?? "",
-                  taskId: task.task_id,
-                  txUrl: task.tx_url || "",
-                  fid: user.fid ?? null,
-                });
-              }
-            });
+      users.map(
+        async (user: {
+          userAddress: string;
+          jobId: string | null;
+          fid: number | null;
+        }) => {
+          if (!user.jobId) return; // Skip if jobId is null
+          try {
+            const jobDataResp = await getJobDataById(
+              triggerxClient,
+              user.jobId
+            );
+            console.log(
+              `Job data for user ${user.userAddress}, jobId ${user.jobId}:`,
+              jobDataResp
+            );
+            if (jobDataResp && Array.isArray(jobDataResp.data?.taskData)) {
+              jobDataResp.data?.taskData.forEach((task: any) => {
+                if (task.task_status === "failed") {
+                  failedTasks.push({
+                    userAddress: user.userAddress,
+                    jobId: user.jobId ?? "",
+                    taskId: task.task_id,
+                    txUrl: task.tx_url || "",
+                    fid: user.fid ?? null,
+                  });
+                }
+              });
+            }
+          } catch (err) {
+            console.warn(
+              `Failed to fetch job data for jobId ${user.jobId}:`,
+              err
+            );
           }
-        } catch (err) {
-          console.warn(
-            `Failed to fetch job data for jobId ${user.jobId}:`,
-            err
-          );
         }
-      })
+      )
     );
 
     res.json({
@@ -798,9 +806,8 @@ router.get("/toke-details/:fid", async (req, res) => {
     }
 
     const user = await prisma.user.findUnique({ where: { fid } });
-    
 
-    if(!user) {
+    if (!user) {
       return res.status(404).json({
         success: false,
         error: "User not found",
@@ -865,7 +872,8 @@ router.post("/token-notification", async (req, res) => {
       update: {
         notificationToken: notificationtoken ?? undefined,
         notificationUrl: notificationurl ?? undefined,
-        isNotification: typeof isNotification === 'boolean' ? isNotification : undefined,
+        isNotification:
+          typeof isNotification === "boolean" ? isNotification : undefined,
         // allow optional profile fields to be updated if provided
         username: username ?? undefined,
         pfpUrl: pfpUrl ?? undefined,
@@ -873,7 +881,7 @@ router.post("/token-notification", async (req, res) => {
       create: {
         fid,
         // default to '0x' if no userAddress provided
-        userAddress: userAddress ?? '0x',
+        userAddress: userAddress ?? "0x",
         username,
         pfpUrl,
         joinedAt: joinedAt ? new Date(joinedAt) : undefined,
@@ -887,7 +895,9 @@ router.post("/token-notification", async (req, res) => {
     return res.json({
       success: true,
       data: user,
-      message: existing ? "Notification details updated" : "User created and notification details saved",
+      message: existing
+        ? "Notification details updated"
+        : "User created and notification details saved",
     });
   } catch (error) {
     console.error("Error updating token notification:", error);
@@ -918,7 +928,7 @@ router.get("/job/:jobId/success-count", async (req, res) => {
     // Fetch job data using SDK
     const jobData = await getJobDataById(triggerxClient, jobId);
 
-    if (!jobData || !Array.isArray(jobData.taskData)) {
+    if (!jobData || !Array.isArray(jobData.data?.taskData)) {
       return res.status(404).json({
         success: false,
         error: "Job not found or no task data available",
@@ -926,7 +936,7 @@ router.get("/job/:jobId/success-count", async (req, res) => {
     }
 
     // Count successful tasks
-    const successCount = jobData.taskData.filter(
+    const successCount = jobData.data?.taskData.filter(
       (task: any) => task.task_status === "success"
     ).length;
 
@@ -935,9 +945,9 @@ router.get("/job/:jobId/success-count", async (req, res) => {
       data: {
         jobId,
         successCount,
-        totalTasks: jobData.taskData.length,
+        totalTasks: jobData.data?.taskData.length,
       },
-      message: `Found ${successCount} successful tasks out of ${jobData.taskData.length} total tasks`,
+      message: `Found ${successCount} successful tasks out of ${jobData.data?.taskData?.length} total tasks`,
     });
   } catch (err: any) {
     const status = err?.response?.status ?? 502;
