@@ -3,8 +3,13 @@ import cors from 'cors';
 import { prisma, getDatabaseHealth } from '../services/prisma.js';
 import { dcaRoutes } from './routes/dca.js';
 import { prepareSwapRouter } from './routes/dca.prepareSwap.js';
-
 import { statusRoutes } from './routes/status.js';
+
+// // Initialize notification infrastructure
+// // This will auto-start the poller (checks for failed tasks every 3 minutes)
+// import '../notification-infra/pollFailedTasks.js';
+// // This will auto-start the worker (processes notification jobs from queue)
+// import '../notification-infra/notificationWorker.js';
 
 const app: express.Application = express();
 

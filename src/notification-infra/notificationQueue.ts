@@ -7,6 +7,7 @@ export interface TxFailedPayload {
   taskId: number;
   planId?: string;
   userAddress: string;
+  fid: number | null;       // Farcaster ID for notifications
   txHash?: string;
   chainId?: string;
   reason?: string;
