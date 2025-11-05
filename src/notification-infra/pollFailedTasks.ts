@@ -6,23 +6,59 @@ import { notificationQueue } from "./notificationQueue.js";
 const API_BASE_URL = 'https://dca-backend.udonswap.org';
 const FAILED_TASKS_API = `${API_BASE_URL}/api/dca/users/failed-tasks`;
 
+// Optional: provide static test data without calling API
+const TEST_FAILED_TASKS: Array<{
+  userAddress: string;
+  jobId: string;
+  taskId: number;
+  txUrl: string;
+  fid: number;
+}> = [
+  {
+    userAddress: "0x40049FaB24B6115cD36D9Ce64EA35185f8bae810",
+    jobId:
+      "1136658311433738124382956023083834648831215645998733076375809311717195832",
+    taskId: 19808,
+    txUrl:
+      "https:/arbitrum.blockscout.com/tx/0xc1b5cb408d547ad0771a989d4536f4f0d4958d37ebd2450fb874335fba5d0545",
+    fid: 727291,
+  },
+  {
+    userAddress: "0x40049FaB24B6115cD36D9Ce64EA35185f8bae810",
+    jobId:
+      "1136658311433738124382956023083834648831215645998733076375809311717195833",
+    taskId: 19812,
+    txUrl:
+      "https:/arbitrum.blockscout.com/tx/0xbdd397043f712ade1280fa91f0a5a972f248be3afd39fff5ded3cf12493b74dd",
+    fid: 727291,
+  },
+];
+
 /**
  * Polls the API for failed tasks and queues notifications.
  * Runs every 3 minutes to check for any failed DCA plan tasks.
  */
 export async function pollFailedTasksOnce() {
   try {
-    console.log(`[Poller] Fetching failed tasks from ${FAILED_TASKS_API}...`);
-    const { data } = await axios.get(FAILED_TASKS_API, {
-      timeout: 30000, // 30 second timeout
-    });
+    let tasks: any[] = [];
+    const POLLER_TEST_DATA=true;
+    if (POLLER_TEST_DATA) {
+      console.log("[Poller] Using static TEST data (POLLER_TEST_DATA=true)");
+      tasks = TEST_FAILED_TASKS;
+    } else {
+      console.log(`[Poller] Fetching failed tasks from ${FAILED_TASKS_API}...`);
+      const { data } = await axios.get(FAILED_TASKS_API, {
+        timeout: 30000, // 30 second timeout
+      });
 
-    if (!data?.success || !Array.isArray(data.data)) {
-      console.warn("[Poller] Unexpected API response", data);
-      return;
+      if (!data?.success || !Array.isArray(data.data)) {
+        console.warn("[Poller] Unexpected API response", data);
+        return;
+      }
+      tasks = data.data;
     }
 
-    const failedTasksCount = data.data.length;
+    const failedTasksCount = tasks.length;
     console.log(`[Poller] Found ${failedTasksCount} failed task(s)`);
 
     if (failedTasksCount === 0) {
@@ -32,7 +68,7 @@ export async function pollFailedTasksOnce() {
     let queuedCount = 0;
     let skippedCount = 0;
 
-    for (const task of data.data) {
+    for (const task of tasks) {
       const { userAddress, jobId, taskId, txUrl, fid } = task;
       
       // Validate required fields
@@ -112,3 +148,5 @@ export async function pollFailedTasksOnce() {
 // if (process.env.DISABLE_AUTO_POLLER !== "true") {
 //   startPoller();
 // }
+
+// pollFailedTasksOnce().catch((e) => console.error("[Poller] Initial run error", e));
