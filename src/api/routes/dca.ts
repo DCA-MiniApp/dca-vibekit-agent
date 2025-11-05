@@ -872,11 +872,10 @@ router.post("/token-notification", async (req, res) => {
       update: {
         notificationToken: notificationtoken ?? undefined,
         notificationUrl: notificationurl ?? undefined,
-        isNotification:
-          typeof isNotification === "boolean" ? isNotification : undefined,
+        isNotification: isNotification ?? true,
         // allow optional profile fields to be updated if provided
-        username: username ?? undefined,
-        pfpUrl: pfpUrl ?? undefined,
+        // username: username ?? undefined,
+        // pfpUrl: pfpUrl ?? undefined,
       },
       create: {
         fid,
@@ -937,7 +936,7 @@ router.get("/job/:jobId/success-count", async (req, res) => {
 
     // Count successful tasks
     const successCount = jobData.data?.taskData.filter(
-      (task: any) => task.task_status === "success"
+      (task: any) => task.task_status === "completed"
     ).length;
 
     return res.json({
