@@ -845,17 +845,7 @@ router.post("/token-notification", async (req, res) => {
       joinedAt,
       isWelcomed,
       isNotification,
-    } = req.body as {
-      fid?: string;
-      notificationtoken?: string;
-      notificationurl?: string;
-      userAddress?: string;
-      username?: string;
-      pfpUrl?: string;
-      joinedAt?: string;
-      isWelcomed?: boolean;
-      isNotification?: boolean;
-    };
+    } = req.body;
 
     if (!fid) {
       return res.status(400).json({
@@ -873,9 +863,6 @@ router.post("/token-notification", async (req, res) => {
         notificationToken: notificationtoken ?? undefined,
         notificationUrl: notificationurl ?? undefined,
         isNotification: isNotification ?? true,
-        // allow optional profile fields to be updated if provided
-        // username: username ?? undefined,
-        // pfpUrl: pfpUrl ?? undefined,
       },
       create: {
         fid,
