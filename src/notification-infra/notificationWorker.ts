@@ -1,6 +1,6 @@
 import { Worker, Job } from "bullmq";
 import axios from "axios";
-import { TxFailedPayload } from "./notificationQueue.js";
+import { TxFailedPayload, notificationQueue } from "./notificationQueue.js";
 import { connection } from "./redis.js";
 
 const FRONTEND_BASE = process.env.FRONTEND_BASE_URL || "http://localhost:3000";
@@ -10,6 +10,34 @@ const API_BASE = process.env.API_BASE_URL || "http://localhost:3031";
  * Worker that processes notification jobs from the queue.
  * Fetches notification details and sends failed task notifications to the frontend.
  */
+// Queue monitoring - log stats periodically
+async function logQueueStats() {
+  try {
+    const [waiting, active, completed, failed, delayed] = await Promise.all([
+      notificationQueue.getWaitingCount(),
+      notificationQueue.getActiveCount(),
+      notificationQueue.getCompletedCount(),
+      notificationQueue.getFailedCount(),
+      notificationQueue.getDelayedCount(),
+    ]);
+    
+    console.log(
+      `[Queue Stats] Waiting: ${waiting}, Active: ${active}, Delayed: ${delayed}, ` +
+      `Completed: ${completed}, Failed: ${failed}`
+    );
+    
+    // Warn if queue is backing up
+    if (waiting > 100) {
+      console.warn(`[Queue] ⚠️ High queue depth: ${waiting} jobs waiting. Consider increasing worker concurrency.`);
+    }
+  } catch (err) {
+    console.error("[Queue Stats] Error fetching stats:", err);
+  }
+}
+
+// Log queue stats every minute
+setInterval(logQueueStats, 60000);
+
 const worker = new Worker<TxFailedPayload>(
   "notifications",
   async (job: Job<TxFailedPayload>) => {
@@ -85,6 +113,8 @@ const worker = new Worker<TxFailedPayload>(
         `[Notification] ✅ Successfully sent notification (job ${jobId}, task ${taskId}, fid ${fid})`
       );
     } catch (error: any) {
+      const status = error?.response?.status;
+      console.log(`[Notification] Error status: ${status}`);
       const errorMessage = error.response 
         ? `API error: ${error.response.status} - ${error.response.statusText}`
         : error.message || "Unknown error";
@@ -101,6 +131,9 @@ const worker = new Worker<TxFailedPayload>(
     connection,
     concurrency: 10,  // Process up to 10 notifications concurrently
     // Automatic retries handled by BullMQ via attempts config when adding jobs
+    lockDuration: 30000,  // Job must complete in 30s or considered stalled
+    maxStalledCount: 2,   // Max times a job can be stalled before failing
+    stalledInterval: 30000, // Check for stalled jobs every 30s
   }
 );
 
@@ -115,6 +148,13 @@ worker.on("failed", (job, err) => {
 worker.on("error", (err) => {
   console.error(`[Worker] ❌ Worker error:`, err);
 });
+
+worker.on("stalled", (jobId) => {
+  console.warn(`[Worker] ⚠️ Job ${jobId} stalled - worker may have crashed or job took too long`);
+});
+
+// Log initial queue stats on startup
+logQueueStats().catch(console.error);
 
 console.log("[Worker] Notification worker started and ready to process jobs");
 

@@ -129,24 +129,29 @@ export async function pollFailedTasksOnce() {
  * Starts the poller that runs every 3 minutes.
  * Also runs once immediately on startup to catch any existing failed tasks.
  */
-// export function startPoller() {
-//   // Schedule to run every 3 minutes
-//   // Cron expression: "*/3 * * * *" means every 3 minutes
-//   cron.schedule("*/3 * * * *", () => {
-//     console.log("[Poller] Scheduled polling cycle started...");
-//     pollFailedTasksOnce().catch((e) => console.error("[Poller] Scheduled run error", e));
-//   });
+export function startPoller() {
+  // Schedule to run every 3 minutes
+  // Cron expression: "*/3 * * * *" means every 3 minutes
+  // cron.schedule("*/3 * * * *", () => {
+  //   console.log("[Poller] Scheduled polling cycle started...");
+  //   pollFailedTasksOnce().catch((e) => console.error("[Poller] Scheduled run error", e));
+  // });
 
-//   console.log("[Poller] Started - will poll every 3 minutes");
+  cron.schedule("0 */2 * * *", () => {
+  console.log("[Poller] Scheduled polling cycle started...");
+  pollFailedTasksOnce().catch((e) => console.error("[Poller] Scheduled run error", e));
+});
+
+  console.log("[Poller] Started - will poll every 2 hours");
   
-//   // Run once immediately at startup
-//   console.log("[Poller] Running initial check...");
-//   pollFailedTasksOnce().catch((e) => console.error("[Poller] Initial run error", e));
-// }
+  // Run once immediately at startup
+  console.log("[Poller] Running initial check...");
+  pollFailedTasksOnce().catch((e) => console.error("[Poller] Initial run error", e));
+}
 
-// // Auto-start poller when this module is imported
-// if (process.env.DISABLE_AUTO_POLLER !== "true") {
-//   startPoller();
-// }
+// Auto-start poller when this module is imported
+if (process.env.DISABLE_AUTO_POLLER !== "true") {
+  startPoller();
+}
 
 // pollFailedTasksOnce().catch((e) => console.error("[Poller] Initial run error", e));
