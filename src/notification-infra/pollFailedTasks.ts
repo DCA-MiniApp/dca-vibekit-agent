@@ -41,14 +41,14 @@ const TEST_FAILED_TASKS: Array<{
 export async function pollFailedTasksOnce() {
   try {
     let tasks: any[] = [];
-    const POLLER_TEST_DATA=true;
-    if (POLLER_TEST_DATA) {
+    // const POLLER_TEST_DATA=true;
+    if (process.env.POLLER_TEST_DATA==="TRUE") {
       console.log("[Poller] Using static TEST data (POLLER_TEST_DATA=true)");
       tasks = TEST_FAILED_TASKS;
     } else {
       console.log(`[Poller] Fetching failed tasks from ${FAILED_TASKS_API}...`);
       const { data } = await axios.get(FAILED_TASKS_API, {
-        timeout: 30000, // 30 second timeout
+        timeout: 60000, // 1 minutes timeout
       });
 
       if (!data?.success || !Array.isArray(data.data)) {
@@ -137,12 +137,12 @@ export function startPoller() {
   //   pollFailedTasksOnce().catch((e) => console.error("[Poller] Scheduled run error", e));
   // });
 
-  cron.schedule("0 */2 * * *", () => {
+  cron.schedule("0 */1 * * *", () => {
   console.log("[Poller] Scheduled polling cycle started...");
   pollFailedTasksOnce().catch((e) => console.error("[Poller] Scheduled run error", e));
 });
 
-  console.log("[Poller] Started - will poll every 2 hours");
+  console.log("[Poller] Started - will poll every 1 hours");
   
   // Run once immediately at startup
   console.log("[Poller] Running initial check...");
