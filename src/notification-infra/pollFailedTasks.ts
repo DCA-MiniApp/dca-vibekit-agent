@@ -3,7 +3,7 @@ import cron from "node-cron";
 import { tryInsertDedup } from "./dedup.js";
 import { notificationQueue } from "./notificationQueue.js";
 
-const API_BASE_URL = 'https://dca-backend.udonswap.org';
+const API_BASE_URL = "https://dca-backend.udonswap.org";
 const FAILED_TASKS_API = `${API_BASE_URL}/api/dca/users/failed-tasks`;
 
 // Optional: provide static test data without calling API
@@ -42,7 +42,7 @@ export async function pollFailedTasksOnce() {
   try {
     let tasks: any[] = [];
     // const POLLER_TEST_DATA=true;
-    if (process.env.POLLER_TEST_DATA==="TRUE") {
+    if (process.env.POLLER_TEST_DATA === "TRUE") {
       console.log("[Poller] Using static TEST data (POLLER_TEST_DATA=true)");
       tasks = TEST_FAILED_TASKS;
     } else {
@@ -70,10 +70,13 @@ export async function pollFailedTasksOnce() {
 
     for (const task of tasks) {
       const { userAddress, jobId, taskId, txUrl, fid } = task;
-      
+
       // Validate required fields
       if (!jobId || taskId === undefined) {
-        console.warn(`[Poller] Skipping task with missing jobId or taskId:`, task);
+        console.warn(
+          `[Poller] Skipping task with missing jobId or taskId:`,
+          task
+        );
         skippedCount++;
         continue;
       }
@@ -83,7 +86,9 @@ export async function pollFailedTasksOnce() {
       // Check if notification already sent (deduplication)
       const ok = await tryInsertDedup(idempotencyKey);
       if (!ok) {
-        console.log(`[Poller] Skipping duplicate notification (job ${jobId}, task ${taskId})`);
+        console.log(
+          `[Poller] Skipping duplicate notification (job ${jobId}, task ${taskId})`
+        );
         skippedCount++;
         continue;
       }
@@ -110,17 +115,28 @@ export async function pollFailedTasksOnce() {
       );
 
       queuedCount++;
-      console.log(`[Poller] Queued notification for failed task (job ${jobId}, task ${taskId}, user ${userAddress})`);
+      console.log(
+        `[Poller] Queued notification for failed task (job ${jobId}, task ${taskId}, user ${userAddress})`
+      );
     }
 
-    console.log(`[Poller] Summary: ${queuedCount} queued, ${skippedCount} skipped`);
+    console.log(
+      `[Poller] Summary: ${queuedCount} queued, ${skippedCount} skipped`
+    );
   } catch (e: any) {
     if (e.code === "ECONNREFUSED") {
-      console.error(`[Poller] Cannot connect to API at ${FAILED_TASKS_API}. Is the server running?`);
+      console.error(
+        `[Poller] Cannot connect to API at ${FAILED_TASKS_API}. Is the server running?`
+      );
     } else if (e.response) {
-      console.error(`[Poller] API error: ${e.response.status} - ${e.response.statusText}`);
+      console.error(
+        `[Poller] API error: ${e.response.status} - ${e.response.statusText}`
+      );
     } else {
-      console.error("[Poller] Error fetching or processing failed tasks:", e.message || e);
+      console.error(
+        "[Poller] Error fetching or processing failed tasks:",
+        e.message || e
+      );
     }
   }
 }
@@ -137,16 +153,25 @@ export function startPoller() {
   //   pollFailedTasksOnce().catch((e) => console.error("[Poller] Scheduled run error", e));
   // });
 
-  cron.schedule("0 */1 * * *", () => {
-  console.log("[Poller] Scheduled polling cycle started...");
-  pollFailedTasksOnce().catch((e) => console.error("[Poller] Scheduled run error", e));
-});
+  //   cron.schedule("0 */1 * * *", () => {
+  //   console.log("[Poller] Scheduled polling cycle started...");
+  //   pollFailedTasksOnce().catch((e) => console.error("[Poller] Scheduled run error", e));
+  // });
+
+  cron.schedule("*/20 * * * *", () => {
+    console.log("[Poller] Scheduled polling cycle started...");
+    pollFailedTasksOnce().catch((e) =>
+      console.error("[Poller] Scheduled run error", e)
+    );
+  });
 
   console.log("[Poller] Started - will poll every 1 hours");
-  
+
   // Run once immediately at startup
   console.log("[Poller] Running initial check...");
-  pollFailedTasksOnce().catch((e) => console.error("[Poller] Initial run error", e));
+  pollFailedTasksOnce().catch((e) =>
+    console.error("[Poller] Initial run error", e)
+  );
 }
 
 // Auto-start poller when this module is imported
