@@ -142,11 +142,11 @@ router.get("/plans/:userAddress", async (req, res) => {
 
     // Fetch job data for each plan (in parallel)
     const formattedPlans: DCAPlanResponse[] = await Promise.all(
-      dcaPlans.map(async (plan) => {
+      dcaPlans.map(async (plan:any) => {
         let jobData = null;
         if (plan.jobId) {
           try {
-            jobData = await getJobDataById(triggerxClient, plan.jobId);
+            jobData = await getJobDataById(triggerxClient, plan.jobId,plan.userAddress);
           } catch (err) {
             console.warn(
               `Failed to fetch job data for jobId ${plan.jobId}:`,
@@ -397,12 +397,13 @@ router.get("/user/:userAddress/history", async (req, res) => {
     const history: any[] = [];
 
     await Promise.all(
-      dcaPlans.map(async (plan) => {
+      dcaPlans.map(async (plan:any) => {
         if (plan.jobId) {
           try {
             const jobDataResp = await getJobDataById(
               triggerxClient,
-              plan.jobId
+              plan.jobId,
+              plan.userAddress
             );
             console.log("Line 398:", jobDataResp);
             if (jobDataResp && Array.isArray(jobDataResp.data?.taskData)) {
@@ -473,7 +474,7 @@ router.get("/history/:planId", async (req, res) => {
       skip: parseInt(offset as string),
     });
 
-    const formattedExecutions = executions.map((execution) => ({
+    const formattedExecutions = executions.map((execution:any) => ({
       id: execution.id,
       planId: execution.planId,
       executedAt: execution.executedAt.toISOString(),
@@ -650,7 +651,8 @@ router.get("/users/failed-tasks", async (req, res) => {
           try {
             const jobDataResp = await getJobDataById(
               triggerxClient,
-              user.jobId
+              user.jobId,
+              user.userAddress
             );
             console.log(
               `Job data for user ${user.userAddress}, jobId ${user.jobId}:`,
@@ -896,9 +898,9 @@ router.post("/token-notification", async (req, res) => {
 });
 
 // Get successful task count for a job
-router.get("/job/:jobId/success-count", async (req, res) => {
+router.get("/userAddress/:userAddress/job/:jobId/success-count", async (req, res) => {
   try {
-    const { jobId } = req.params;
+    const { jobId,userAddress } = req.params;
 
     if (!jobId) {
       return res.status(400).json({
@@ -912,7 +914,7 @@ router.get("/job/:jobId/success-count", async (req, res) => {
     );
 
     // Fetch job data using SDK
-    const jobData = await getJobDataById(triggerxClient, jobId);
+    const jobData = await getJobDataById(triggerxClient, jobId,userAddress);
 
     if (!jobData || !Array.isArray(jobData.data?.taskData)) {
       return res.status(404).json({
