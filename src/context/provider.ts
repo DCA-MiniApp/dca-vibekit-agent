@@ -2,11 +2,12 @@ import type { ContextDependencies, DCAContext, TokenInfo } from './types.js';
 import type { LanguageModelV1 } from 'ai';
 import { prisma, testDatabaseConnection } from '../services/prisma.js';
 import { Address, isAddress } from 'viem';
-// Removed privateKeyToAccount import since we don't need transaction execution
-// Removed transaction executor import since we don't need it anymore
 import { parseMcpToolResponsePayload } from 'arbitrum-vibekit-core';
 import { z } from 'zod';
 import pRetry from 'p-retry';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { saveTokenMapToJson, saveSampleTokenMap } from '../utils/tokenMapSaver.js';
 
 // Local type definitions for MCP getTokens response (same as ember-api)
@@ -74,36 +75,86 @@ function populateTokenMap(tokens: Token[]): Record<string, TokenInfo[]> {
  * Fallback token map for Arbitrum when MCP client is unavailable
  */
 function getFallbackTokenMap(): Record<string, TokenInfo[]> {
-  return {
-    'WETH': [{
-      chainId: 42161,
-      address: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
-      decimals: 18,
-      symbol: 'WETH',
-      name: 'Wrapped Ether'
-    }],
-    'USDC': [{
-      chainId: 42161,
-      address: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
-      decimals: 6,
-      symbol: 'USDC',
-      name: 'USD Coin'
-    }],
-    'USDT': [{
-      chainId: 42161,
-      address: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
-      decimals: 6,
-      symbol: 'USDT',
-      name: 'Tether USD'
-    }],
-    'ARB': [{
-      chainId: 42161,
-      address: '0x912CE59144191C1204E64559FE8253a0e49E6548',
-      decimals: 18,
-      symbol: 'ARB',
-      name: 'Arbitrum'
-    }]
-  };
+  return loadFallbackTokenMap();
+}
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const FALLBACK_TOKEN_MAP_PATH = path.resolve(__dirname, '../utils/tokenMap_arbitrum.json');
+
+let cachedFallbackTokenMap: Record<string, TokenInfo[]> | null = null;
+
+const baseFallbackTokenMap: Record<string, TokenInfo[]> = {
+  WETH: [{
+    chainId: 42161,
+    address: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
+    decimals: 18,
+    symbol: 'WETH',
+    name: 'Wrapped Ether'
+  }],
+  USDC: [{
+    chainId: 42161,
+    address: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+    decimals: 6,
+    symbol: 'USDC',
+    name: 'USD Coin'
+  }],
+  USDT: [{
+    chainId: 42161,
+    address: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
+    decimals: 6,
+    symbol: 'USDT',
+    name: 'Tether USD'
+  }],
+  ARB: [{
+    chainId: 42161,
+    address: '0x912CE59144191C1204E64559FE8253a0e49E6548',
+    decimals: 18,
+    symbol: 'ARB',
+    name: 'Arbitrum'
+  }],
+  ETH: [{
+    chainId: 42161,
+    address: '0x0000000000000000000000000000000000000000',
+    decimals: 18,
+    symbol: 'ETH',
+    name: 'Ethereum'
+  }]
+};
+
+function loadFallbackTokenMap(): Record<string, TokenInfo[]> {
+  if (cachedFallbackTokenMap) {
+    return cachedFallbackTokenMap;
+  }
+
+  try {
+    const fileContents = fs.readFileSync(FALLBACK_TOKEN_MAP_PATH, 'utf-8');
+    const parsed = JSON.parse(fileContents);
+    const tokenMapFromFile = parsed?.tokenMap ?? {};
+
+    const normalized: Record<string, TokenInfo[]> = {};
+    for (const [symbol, tokens] of Object.entries<any>(tokenMapFromFile)) {
+      if (!Array.isArray(tokens)) continue;
+      normalized[symbol.toUpperCase()] = tokens.map((token: any) => ({
+        chainId: Number(token.chainId ?? token.tokenUid?.chainId ?? 42161),
+        address: token.address ?? token.tokenUid?.address ?? '',
+        decimals: Number(token.decimals ?? 18),
+        symbol: token.symbol ?? symbol.toUpperCase(),
+        name: token.name ?? token.symbol ?? symbol.toUpperCase(),
+      })).filter((token: TokenInfo) => token.address);
+    }
+
+    cachedFallbackTokenMap = {
+      ...normalized,
+      ...baseFallbackTokenMap,
+    };
+    console.log('[Context] ✅ Loaded fallback token map from tokenMap_arbitrum.json');
+  } catch (error) {
+    console.warn('[Context] ⚠️  Failed to load tokenMap_arbitrum.json. Using base fallback token map.', error);
+    cachedFallbackTokenMap = { ...baseFallbackTokenMap };
+  }
+
+  return cachedFallbackTokenMap;
 }
 
 /**
@@ -142,9 +193,16 @@ async function loadTokenMap(mcpClient: any): Promise<Record<string, TokenInfo[]>
     console.log(`[Context] ✅ Received ${tokensResponse.tokens.length} tokens from Ember MCP`);
     const tokenMap = populateTokenMap(tokensResponse.tokens);
 
+    const fallbackTokenMap = loadFallbackTokenMap();
+    const mergedTokenMap: Record<string, TokenInfo[]> = { ...fallbackTokenMap };
+    for (const [symbol, tokens] of Object.entries(tokenMap)) {
+      if (!tokens || tokens.length === 0) continue;
+      mergedTokenMap[symbol] = tokens;
+    }
+
     // Save tokenMap to JSON if enabled via environment variable
-    await saveTokenMapToJson(tokenMap);
-    await saveSampleTokenMap(tokenMap);
+    await saveTokenMapToJson(mergedTokenMap);
+    await saveSampleTokenMap(mergedTokenMap);
 
     // Debug: Log first 10 available Arbitrum tokens only
     const arbitrumSymbols = Object.entries(tokenMap)
@@ -153,7 +211,7 @@ async function loadTokenMap(mcpClient: any): Promise<Record<string, TokenInfo[]>
       .slice(0, 10);
     console.log('[Context] 📋 First 10 available Arbitrum tokens:', arbitrumSymbols.join(', '));
 
-    return tokenMap;
+    return mergedTokenMap;
   };
 
   try {

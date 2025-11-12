@@ -18,6 +18,7 @@ import { z } from 'zod';
 import type { DCAContext, TokenInfo } from '../context/types.js';
 import { parseUnits } from 'viem';
 import { CreateSwapResponseSchema, type CreateSwapResponse } from '../types/shared.js';
+import fallbackTokenMapJson from '../utils/tokenMap_arbitrum.json' with { type: 'json' };
 
 
 // Schema is now imported from shared.ts
@@ -25,6 +26,22 @@ import { CreateSwapResponseSchema, type CreateSwapResponse } from '../types/shar
 /**
  * Find token details in the context's token map
  */
+const fallbackTokenMap: Record<string, TokenInfo[]> = (() => {
+  const mapFromJson = (fallbackTokenMapJson as { tokenMap?: Record<string, any[]> })?.tokenMap ?? {};
+  const normalized: Record<string, TokenInfo[]> = {};
+  for (const [symbol, tokens] of Object.entries(mapFromJson)) {
+    if (!Array.isArray(tokens)) continue;
+    normalized[symbol.toUpperCase()] = tokens.map(token => ({
+      chainId: Number(token.chainId ?? token.tokenUid?.chainId ?? 42161),
+      address: token.address ?? token.tokenUid?.address ?? '',
+      decimals: Number(token.decimals ?? 18),
+      symbol: (token.symbol ?? symbol).toUpperCase(),
+      name: token.name ?? token.symbol ?? symbol.toUpperCase(),
+    })).filter(token => token.address);
+  }
+  return normalized;
+})();
+
 function findTokenDetail(
   tokenSymbol: string,
   tokenMap: Record<string, TokenInfo[]>,
@@ -32,8 +49,19 @@ function findTokenDetail(
 ): TokenInfo | null {
   const upperSymbol = tokenSymbol.toUpperCase();
   const tokens = tokenMap[upperSymbol];
-  if (!tokens || tokens.length === 0) return null;
-  return tokens.find(token => token.chainId === chainId) || null;
+  if (tokens && tokens.length > 0) {
+    const match = tokens.find(token => token.chainId === chainId);
+    if (match) return match;
+  }
+
+  const fallbackTokens = fallbackTokenMap[upperSymbol];
+  if (fallbackTokens && fallbackTokens.length > 0) {
+    const match = fallbackTokens.find(token => token.chainId === chainId) ?? fallbackTokens[0];
+    console.log(`[DCA Swap] ℹ️ Using fallback token detail for ${upperSymbol}`);
+    return match ?? null;
+  }
+
+  return null;
 }
 
 /**
@@ -165,6 +193,13 @@ const basePrepareDCASwapTool: VibkitToolDefinition<typeof PrepareDCASwapParams, 
         throw new Error('Ember MCP client not available');
       }
 
+      // Validate tokenMap availability
+      if (!context.custom.tokenMap || Object.keys(context.custom.tokenMap).length === 0) {
+        console.error('[DCA Swap] ❌ Token map is empty or not initialized!');
+        console.error('  This likely means the Ember MCP client failed to fetch tokens and the fallback was not applied.');
+        throw new Error('Token map not initialized. Please check agent startup logs for MCP connection issues.');
+      }
+
       // Resolve tokens
       const fromTokenDetail = findTokenDetail(fromToken, context.custom.tokenMap);
       console.log("fromtoken details", fromTokenDetail);
@@ -182,8 +217,7 @@ const basePrepareDCASwapTool: VibkitToolDefinition<typeof PrepareDCASwapParams, 
         console.log("atomic amount", atomicAmount);
       }
 
-      console.log(`[DCA Swap] 🔄 Requesting swap plan with retry mechanism...`);
-
+      console.log(`[DCA Swap] 🔄 Requesting swap plan with retry mechanism...`);  
       const swapArgs = {
         walletAddress: userAddress,              // string
         fromChain: fromTokenDetail.chainId.toString(), // string
