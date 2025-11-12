@@ -221,7 +221,25 @@ process.on('unhandledRejection', (reason, promise) => {
   shutdown('unhandledRejection');
 });
 
+const MAX_RETRIES = 5;
+const RETRY_DELAY_MS = 10000; // 10 seconds
+
+async function startAgentWithRetry(retries = 0) {
+  try {
+    await startAgent();
+  } catch (error) {
+    console.error(`❌ Failed to start DCA Agent (attempt ${retries + 1}):`, error);
+    if (retries < MAX_RETRIES) {
+      console.log(`🔄 Retrying in ${RETRY_DELAY_MS / 1000} seconds...`);
+      setTimeout(() => startAgentWithRetry(retries + 1), RETRY_DELAY_MS);
+    } else {
+      console.error('❌ Max retries reached. Exiting.');
+      process.exit(1);
+    }
+  }
+}
+
 // Start the agent if this file is run directly
 if (import.meta.url === `file://${process.argv[1]}`) {
-  startAgent();
+  startAgentWithRetry();
 }

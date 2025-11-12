@@ -112,4 +112,3 @@ prisma/migrations/
 
 
 local-deps/*/node-compile-cache
-*.json
