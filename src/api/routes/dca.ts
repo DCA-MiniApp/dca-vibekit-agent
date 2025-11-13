@@ -10,6 +10,7 @@ import {
 } from "../../types/shared.js";
 import { TriggerXClient } from "sdk-triggerx";
 import { getJobDataById } from "sdk-triggerx";
+import { getTokenPrice } from "../../utils/tokenPrice.js";
 
 const router: Router = Router();
 
@@ -948,5 +949,219 @@ router.get("/userAddress/:userAddress/job/:jobId/success-count", async (req, res
     });
   }
 });
+
+
+// Get aggregated platform statistics with user details
+router.get("/platform-stats", async (req, res) => {
+  try {
+    const triggerxClient = new TriggerXClient(
+      process.env.TRIGGERX_API_KEY || ""
+    );
+
+    // 1. Fetch all DCA plans with jobId
+    const dcaPlans = await prisma.dcaPlan.findMany({
+      where: {
+        jobId: {
+          not: null,
+        },
+      },
+      select: {
+        userAddress: true,
+        fromToken: true,
+        amount: true,
+        jobId: true,
+        ipfsLink: true,
+        fid: true,
+      },
+    });
+
+    console.log(`Processing ${dcaPlans.length} DCA plans for platform stats`);
+    // console.log("DCA plans:", JSON.stringify(dcaPlans, null, 2));
+
+    // 2. Process each plan to gather data
+    const userDataMap = new Map<
+      string,
+      {
+        userAddress: string;
+        fid: number | null;
+        ipfs_url: string | null;
+        jobid: string;
+        fromToken: string;
+        amount: string;
+        tasks_id: number[];
+        task_data: any[];
+        successCount: number;
+        Cost_of_TG: number;
+        total_swapped: number;
+        status: string;
+      }
+    >();
+
+    let totalValueSwapped = 0;
+    let totalJobLiveCount = 0;
+    let totalJobFailed = 0;
+    let totalJobProcessing = 0;
+
+    // Process plans in parallel batches to avoid overwhelming the API
+    const batchSize = 10;
+    for (let i = 0; i < dcaPlans.length; i += batchSize) {
+      const batch = dcaPlans.slice(i, i + batchSize);
+      await Promise.all(
+        batch.map(async (plan) => {
+          if (!plan.jobId) return;
+
+          try {
+            // Get job data
+            const jobDataResp = await getJobDataById(
+              triggerxClient,
+              plan.jobId,
+              plan.userAddress
+            );
+
+            if (!jobDataResp || !jobDataResp.success) {
+              console.warn(
+                `Failed to fetch job data for jobId ${plan.jobId}`
+              );
+              return;
+            }
+
+            const jobData = jobDataResp.data?.jobData;
+            const taskData = jobDataResp.data?.taskData || [];
+
+            if (!jobData) {
+              return;
+            }
+
+            // Extract required fields
+            const status = jobData.status || "unknown";
+            const taskIds = jobData.task_ids || [];
+            const taskOpxCosts = taskData.map(
+              (task: any) => parseFloat(task.task_opx_cost || "0")
+            );
+
+            // Calculate TG cost: sum of all task_opx_cost * 10^-3
+            const totalTaskOpxCost = taskOpxCosts.reduce(
+              (sum: number, cost: number) => sum + cost,
+              0
+            );
+            const tgCost = totalTaskOpxCost * Math.pow(10, -3);
+
+            // Get success count
+            const successCount = taskData.filter(
+              (task: any) => task.task_status === "completed"
+            ).length;
+
+            // Get token price
+            const tokenPrice = await getTokenPrice(plan.fromToken);
+            const amount = parseFloat(plan.amount.toString());
+
+            // Calculate total_value_swap: amount * price * successCount
+            let totalValueSwap = 0;
+            if (tokenPrice !== null) {
+              totalValueSwap = amount * tokenPrice * successCount;
+            }
+
+            // Categorize job status
+            if (status === "completed") {
+              // Check if there are any failed tasks
+              const hasFailedTasks = taskData.some(
+                (task: any) => task.task_status === "failed"
+              );
+              if (hasFailedTasks) {
+                totalJobFailed++;
+              } else {
+                totalJobLiveCount++;
+              }
+            } else if (status === "running" || status === "pending") {
+              totalJobProcessing++;
+            } else if (status === "failed" || status === "cancelled") {
+              totalJobFailed++;
+            } else {
+              totalJobLiveCount++;
+            }
+
+            // Store or update user data
+            const userKey = `${plan.userAddress}_${plan.jobId}`;
+            const existing = userDataMap.get(userKey);
+
+            if (existing) {
+              // Merge task IDs and costs
+              existing.tasks_id = [
+                ...new Set([...existing.tasks_id, ...taskIds]),
+              ];
+              existing.Cost_of_TG += tgCost;
+              existing.total_swapped += totalValueSwap;
+            } else {
+              userDataMap.set(userKey, {
+                userAddress: plan.userAddress,
+                fid: plan.fid,
+                ipfs_url: plan.ipfsLink,
+                jobid: plan.jobId,
+                tasks_id: taskIds,
+                Cost_of_TG: tgCost,
+                total_swapped: totalValueSwap,
+                status: status,
+                task_data: taskData,
+                successCount: successCount,
+                fromToken: plan.fromToken,
+                amount: plan.amount.toString(),
+              });
+            }
+
+            totalValueSwapped += totalValueSwap;
+          } catch (err) {
+            console.error(
+              `Error processing plan for user ${plan.userAddress}, jobId ${plan.jobId}:`,
+              err
+            );
+          }
+        })
+      );
+    }
+
+    // Convert map to array
+    const users = Array.from(userDataMap.values());
+
+    // Get unique users count
+    const uniqueUserAddresses = new Set(users.map((u) => u.userAddress));
+    const totalUniqueUsers = uniqueUserAddresses.size;
+
+    // Build response
+    const response = {
+      total_unique_user: totalUniqueUsers,
+      total_job_live_count: totalJobLiveCount,
+      total_job_failed: totalJobFailed,
+      total_job_processing: totalJobProcessing,
+      total_value_swapped: totalValueSwapped,
+      users: users.map((user) => ({
+        Address: user.userAddress,
+        fid: user.fid,
+        ipfs_url: user.ipfs_url,
+        jobid: user.jobid,
+        tasks_id: user.tasks_id,
+        task_data: user.task_data,
+        Cost_of_TG: user.Cost_of_TG,
+        total_swapped: user.total_swapped,
+        status: user.status,
+      })),
+      last_update: new Date().toISOString(),
+    };
+
+    return res.json({
+      success: true,
+      data: response,
+      message: "Platform statistics retrieved successfully",
+    });
+  } catch (error) {
+    console.error("Error fetching platform stats:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to fetch platform statistics",
+    });
+  }
+});
+
+
 
 export { router as dcaRoutes };
