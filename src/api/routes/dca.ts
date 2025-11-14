@@ -991,7 +991,7 @@ router.get("/platform-stats", async (req, res) => {
         tasks_id: number[];
         task_data: any[];
         successCount: number;
-        Cost_of_TG: number;
+        Cost_of_TG: string; // Formatted as scientific notation with (eth) suffix
         total_swapped: number;
         status: string;
       }
@@ -1044,7 +1044,7 @@ router.get("/platform-stats", async (req, res) => {
               (sum: number, cost: number) => sum + cost,
               0
             );
-            const tgCost = totalTaskOpxCost * Math.pow(10, -3);
+            const tgCostInEth = totalTaskOpxCost * Math.pow(10, -3);
 
             // Get success count
             const successCount = taskData.filter(
@@ -1053,6 +1053,7 @@ router.get("/platform-stats", async (req, res) => {
 
             // Get token price
             const tokenPrice = await getTokenPrice(plan.fromToken);
+            console.log("tokenPrice", tokenPrice);
             const amount = parseFloat(plan.amount.toString());
 
             // Calculate total_value_swap: amount * price * successCount
@@ -1084,12 +1085,58 @@ router.get("/platform-stats", async (req, res) => {
             const userKey = `${plan.userAddress}_${plan.jobId}`;
             const existing = userDataMap.get(userKey);
 
+            // Format TG cost in decimal format with (eth) suffix
+            // Format: "0.0000000010001(eth)" - showing full decimal representation
+            const formatTGCost = (cost: number): string => {
+              if (cost === 0) {
+                return "0(eth)";
+              }
+              
+              // For very small numbers, we need to show enough decimal places
+              // Use a helper to convert scientific notation to decimal string
+              const convertToDecimalString = (num: number): string => {
+                // Check if the number would be displayed in scientific notation
+                const str = num.toString();
+                if (str.includes('e') || str.includes('E')) {
+                  // Parse scientific notation
+                  const match = str.match(/^([\d.]+)[eE]([+-]?\d+)$/);
+                  if (match && match[1] && match[2]) {
+                    const base = parseFloat(match[1]);
+                    const exponent = parseInt(match[2]);
+                    const result = base * Math.pow(10, exponent);
+                    // Calculate decimal places needed (at least 4 significant digits after decimal point)
+                    const absExponent = Math.abs(exponent);
+                    const decimalPlaces = Math.max(absExponent + 4, 18);
+                    return result.toFixed(decimalPlaces);
+                  }
+                }
+                return str;
+              };
+              
+              let decimalStr = convertToDecimalString(cost);
+              // Remove trailing zeros but keep at least one digit after decimal if it's a decimal number
+              if (decimalStr.includes('.')) {
+                decimalStr = decimalStr.replace(/\.?0+$/, '');
+                // Ensure we don't remove the decimal point if there are no digits after
+                if (decimalStr.endsWith('.')) {
+                  decimalStr = decimalStr.slice(0, -1);
+                }
+              }
+              
+              return `${decimalStr}(eth)`;
+            };
+
             if (existing) {
               // Merge task IDs and costs
               existing.tasks_id = [
                 ...new Set([...existing.tasks_id, ...taskIds]),
               ];
-              existing.Cost_of_TG += tgCost;
+              // Parse existing cost, add new cost, and reformat
+              // Remove "(eth)" suffix and parse the decimal string
+              const existingCostStr = existing.Cost_of_TG.replace("(eth)", "");
+              const existingCost = parseFloat(existingCostStr);
+              const newTotalCost = existingCost + tgCostInEth;
+              existing.Cost_of_TG = formatTGCost(newTotalCost);
               existing.total_swapped += totalValueSwap;
             } else {
               userDataMap.set(userKey, {
@@ -1098,7 +1145,7 @@ router.get("/platform-stats", async (req, res) => {
                 ipfs_url: plan.ipfsLink,
                 jobid: plan.jobId,
                 tasks_id: taskIds,
-                Cost_of_TG: tgCost,
+                Cost_of_TG: formatTGCost(tgCostInEth),
                 total_swapped: totalValueSwap,
                 status: status,
                 task_data: taskData,
@@ -1136,6 +1183,9 @@ router.get("/platform-stats", async (req, res) => {
       users: users.map((user) => ({
         Address: user.userAddress,
         fid: user.fid,
+        fromToken: user.fromToken,
+        amount: user.amount,
+        successCount: user.successCount,
         ipfs_url: user.ipfs_url,
         jobid: user.jobid,
         tasks_id: user.tasks_id,

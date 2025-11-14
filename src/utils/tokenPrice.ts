@@ -3,15 +3,71 @@
  * Uses CoinGecko API to fetch token prices
  */
 
-interface TokenPriceResponse {
-  price: number;
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+interface TokenInfo {
+  chainId: number;
+  address: string;
+  decimals: number;
   symbol: string;
   name: string;
+}
+
+interface TokenMap {
+  metadata?: any;
+  tokenMap: Record<string, TokenInfo[]>;
 }
 
 // Cache for token prices to avoid excessive API calls
 const priceCache = new Map<string, { price: number; timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Cache for token map to avoid reading file multiple times
+let cachedTokenMap: TokenMap | null = null;
+
+/**
+ * Load token map from JSON file
+ */
+function loadTokenMap(): TokenMap | null {
+  if (cachedTokenMap) {
+    return cachedTokenMap;
+  }
+
+  try {
+    const tokenMapPath = path.join(__dirname, "tokenMap_arbitrum.json");
+    const tokenMapData = fs.readFileSync(tokenMapPath, "utf-8");
+    cachedTokenMap = JSON.parse(tokenMapData) as TokenMap;
+    return cachedTokenMap;
+  } catch (error) {
+    console.error("Error loading token map:", error);
+    return null;
+  }
+}
+
+/**
+ * Get contract address from token symbol using token map
+ */
+function getContractAddressFromSymbol(symbol: string): string | null {
+  const tokenMap = loadTokenMap();
+  if (!tokenMap || !tokenMap.tokenMap) {
+    return null;
+  }
+
+  const normalizedSymbol = symbol.toUpperCase().trim();
+  const tokens = tokenMap.tokenMap[normalizedSymbol];
+
+  if (tokens && tokens.length > 0 && tokens[0]) {
+    // Return the first token's address for the symbol
+    return tokens[0].address;
+  }
+
+  return null;
+}
 
 /**
  * Get token price by symbol or contract address
@@ -31,39 +87,22 @@ export async function getTokenPrice(
       return cached.price;
     }
 
-    // Normalize token identifier
-    const normalized = tokenIdentifier.toUpperCase().trim();
-
-    // Map common token symbols to CoinGecko IDs
-    const tokenIdMap: Record<string, string> = {
-      ETH: "ethereum",
-      WETH: "ethereum",
-      USDC: "usd-coin",
-      USDT: "tether",
-      DAI: "dai",
-      WBTC: "wrapped-bitcoin",
-      ARB: "arbitrum",
-      LINK: "chainlink",
-      UNI: "uniswap",
-      AAVE: "aave",
-      CRV: "curve-dao-token",
-    };
-
     let price: number | null = null;
 
-    // Try by symbol first
-    if (tokenIdMap[normalized]) {
-      price = await fetchPriceByCoinGeckoId(tokenIdMap[normalized]);
+    // If it's already a contract address, use it directly
+    if (tokenIdentifier.startsWith("0x")) {
+      price = await fetchPriceByContractAddress(tokenIdentifier, chainId);
     } else {
-      // Try to fetch by contract address (for Arbitrum)
-      if (chainId === "42161" && tokenIdentifier.startsWith("0x")) {
-        price = await fetchPriceByContractAddress(tokenIdentifier, chainId);
+      // It's a symbol, so look it up in the token map
+      const contractAddress = getContractAddressFromSymbol(tokenIdentifier);
+      
+      if (contractAddress) {
+        // Use the contract address to fetch price
+        price = await fetchPriceByContractAddress(contractAddress, chainId);
+      } else {
+        // Fallback: try direct symbol lookup via CoinGecko search
+        price = await fetchPriceBySymbol(tokenIdentifier.toUpperCase().trim());
       }
-    }
-
-    // If still no price, try direct symbol lookup
-    if (!price) {
-      price = await fetchPriceBySymbol(normalized);
     }
 
     // Cache the result
