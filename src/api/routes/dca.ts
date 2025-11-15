@@ -968,6 +968,7 @@ router.get("/platform-stats", async (req, res) => {
       select: {
         userAddress: true,
         fromToken: true,
+        toToken: true,
         amount: true,
         jobId: true,
         ipfsLink: true,
@@ -987,6 +988,7 @@ router.get("/platform-stats", async (req, res) => {
         ipfs_url: string | null;
         jobid: string;
         fromToken: string;
+        toToken: string;
         amount: string;
         tasks_id: number[];
         task_data: any[];
@@ -1138,6 +1140,14 @@ router.get("/platform-stats", async (req, res) => {
               const newTotalCost = existingCost + tgCostInEth;
               existing.Cost_of_TG = formatTGCost(newTotalCost);
               existing.total_swapped += totalValueSwap;
+              // Update successCount by adding new successful tasks
+              existing.successCount += successCount;
+              // Update fromToken, toToken and amount (keep the latest plan's values, or you could aggregate differently)
+              existing.fromToken = plan.fromToken;
+              existing.toToken = plan.toToken;
+              existing.amount = plan.amount.toString();
+              // Merge task_data arrays
+              existing.task_data = [...existing.task_data, ...taskData];
             } else {
               userDataMap.set(userKey, {
                 userAddress: plan.userAddress,
@@ -1151,6 +1161,7 @@ router.get("/platform-stats", async (req, res) => {
                 task_data: taskData,
                 successCount: successCount,
                 fromToken: plan.fromToken,
+                toToken: plan.toToken,
                 amount: plan.amount.toString(),
               });
             }
@@ -1184,6 +1195,7 @@ router.get("/platform-stats", async (req, res) => {
         Address: user.userAddress,
         fid: user.fid,
         fromToken: user.fromToken,
+        toToken: user.toToken,
         amount: user.amount,
         successCount: user.successCount,
         ipfs_url: user.ipfs_url,
