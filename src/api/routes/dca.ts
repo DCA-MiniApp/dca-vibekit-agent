@@ -996,6 +996,7 @@ router.get("/platform-stats", async (req, res) => {
         Cost_of_TG: string; // Formatted as scientific notation with (eth) suffix
         total_swapped: number;
         status: string;
+        username: string | null;
       }
     >();
 
@@ -1055,7 +1056,6 @@ router.get("/platform-stats", async (req, res) => {
 
             // Get token price
             const tokenPrice = await getTokenPrice(plan.fromToken);
-            console.log("tokenPrice", tokenPrice);
             const amount = parseFloat(plan.amount.toString());
 
             // Calculate total_value_swap: amount * price * successCount
@@ -1163,6 +1163,7 @@ router.get("/platform-stats", async (req, res) => {
                 fromToken: plan.fromToken,
                 toToken: plan.toToken,
                 amount: plan.amount.toString(),
+                username: null,
               });
             }
 
@@ -1180,8 +1181,50 @@ router.get("/platform-stats", async (req, res) => {
     // Convert map to array
     const users = Array.from(userDataMap.values());
 
+    // Lookup usernames for available fids
+    let usernameMap = new Map<string, string | null>();
+    const fidsToLookup = Array.from(
+      new Set(
+        users
+          .map((user) => (user.fid ?? null))
+          .filter((fid): fid is number => fid !== null)
+      )
+    );
+
+    if (fidsToLookup.length > 0) {
+      const userRecords = await prisma.user.findMany({
+        where: {
+          fid: {
+            in: fidsToLookup.map((fid) => fid.toString()),
+          },
+        },
+        select: {
+          fid: true,
+          username: true,
+        },
+      });
+
+      usernameMap = new Map(
+        userRecords.map((record) => [record.fid.toString(), record.username])
+      );
+    }
+
+    const enrichedUsers = users.map((user) => {
+      const username =
+        user.fid !== null && user.fid !== undefined
+          ? usernameMap.get(user.fid.toString()) ?? null
+          : null;
+
+      return {
+        ...user,
+        username: username,
+      };
+    });
+
     // Get unique users count
-    const uniqueUserAddresses = new Set(users.map((u) => u.userAddress));
+    const uniqueUserAddresses = new Set(
+      enrichedUsers.map((u) => u.userAddress)
+    );
     const totalUniqueUsers = uniqueUserAddresses.size;
 
     // Build response
@@ -1191,7 +1234,7 @@ router.get("/platform-stats", async (req, res) => {
       total_job_failed: totalJobFailed,
       total_job_processing: totalJobProcessing,
       total_value_swapped: totalValueSwapped,
-      users: users.map((user) => ({
+      users: enrichedUsers.map((user) => ({
         Address: user.userAddress,
         fid: user.fid,
         fromToken: user.fromToken,
@@ -1205,6 +1248,7 @@ router.get("/platform-stats", async (req, res) => {
         Cost_of_TG: user.Cost_of_TG,
         total_swapped: user.total_swapped,
         status: user.status,
+        username: user.username,
       })),
       last_update: new Date().toISOString(),
     };
