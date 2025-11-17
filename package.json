@@ -35,7 +35,7 @@
     "node-cron": "^4.2.1",
     "p-retry": "^6.2.1",
     "prisma": "^6.1.0",
-    "sdk-triggerx": "0.1.30",
+    "sdk-triggerx": "0.1.31",
     "viem": "^2.26.3",
     "zod": "^3.24.1"
   },

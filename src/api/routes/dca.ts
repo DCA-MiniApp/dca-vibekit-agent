@@ -11,7 +11,6 @@ import {
 import { TriggerXClient } from "sdk-triggerx";
 import { getJobDataById } from "sdk-triggerx";
 import { getTokenPrice } from "../../utils/tokenPrice.js";
-
 const router: Router = Router();
 
 // Create DCA Plan
@@ -1075,7 +1074,7 @@ router.get("/platform-stats", async (req, res) => {
               } else {
                 totalJobLiveCount++;
               }
-            } else if (status === "running" || status === "pending") {
+            } else if (status === "running" || status === "pending" || status === "processing") {
               totalJobProcessing++;
             } else if (status === "failed" || status === "cancelled") {
               totalJobFailed++;
