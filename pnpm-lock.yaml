@@ -35,6 +35,9 @@ importers:
       dotenv:
         specifier: ^16.4.7
         version: 16.6.1
+      ethers:
+        specifier: ^6.15.0
+        version: 6.15.0
       express:
         specifier: ^4.21.2
         version: 4.21.2

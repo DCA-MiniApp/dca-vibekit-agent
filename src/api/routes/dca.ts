@@ -12,6 +12,31 @@ import { TriggerXClient } from "sdk-triggerx";
 import { getJobDataById } from "sdk-triggerx";
 import { getTokenPrice } from "../../utils/tokenPrice.js";
 const router: Router = Router();
+import { ethers } from "ethers";
+
+async function getTxFee(txHash: string) {
+  const provider = new ethers.JsonRpcProvider('https://arb1.arbitrum.io/rpc');
+  
+  const [tx, receipt] = await Promise.all([
+    provider.getTransaction(txHash),
+    provider.getTransactionReceipt(txHash)
+  ]);
+
+  if (!tx || !receipt) {
+    throw new Error("Transaction or receipt not found");
+  }
+
+  const gasUsed = receipt.gasUsed;
+  const effectiveGasPrice = receipt.gasPrice ?? tx.gasPrice ?? 0n;
+  const totalFee = gasUsed * effectiveGasPrice;
+
+  return {
+    // gasUsed: gasUsed.toString(),
+    // gasPriceGwei: ethers.formatUnits(effectiveGasPrice, "gwei"),
+    totalFeeETH: ethers.formatEther(totalFee),
+    // totalFeeWei: totalFee.toString(),
+  };
+}
 
 // Create DCA Plan
 router.post("/create", async (req, res) => {
@@ -172,6 +197,30 @@ router.get("/plans/:userAddress", async (req, res) => {
           createdAt: plan.createdAt.toISOString(),
           updatedAt: plan.updatedAt.toISOString(),
           jobData, // <-- Embed jobData here
+          // Compute successCount based on jobData
+          successCount: (() => {
+            // The completed status we're checking for
+            const COMPLETED_STATUS = 'completed';
+            // Check jobData exists and taskData array is present
+            if (
+              jobData &&
+              jobData.success === true &&
+              jobData.data &&
+              Array.isArray(jobData.data.taskData)
+            ) {
+              // Count taskData entries with task_status === 'completed'
+              return jobData.data.taskData.filter(
+                (task: any) => String(task.task_status).toLowerCase() === COMPLETED_STATUS
+              ).length;
+            }
+            return 0;
+          })(),
+          jobDataStatus: (() => {
+            if(jobData && jobData.success === true && jobData.data) {
+              return jobData.data.jobData.status;
+            }
+            return null;
+          })(),
         };
       })
     );
@@ -383,7 +432,7 @@ router.get("/user/:userAddress/history", async (req, res) => {
       });
     }
 
-    // 1. Get all DCA plans for the user
+    // Get all DCA plans for the user
     const dcaPlans = await prisma.dcaPlan.findMany({
       where: { userAddress },
       orderBy: { createdAt: "desc" },
@@ -393,11 +442,11 @@ router.get("/user/:userAddress/history", async (req, res) => {
       process.env.TRIGGERX_API_KEY || ""
     );
 
-    // 2. For each plan, fetch job data and extract task info
+    // For each plan, fetch job data and extract task info
     const history: any[] = [];
 
     await Promise.all(
-      dcaPlans.map(async (plan:any) => {
+      dcaPlans.map(async (plan: any) => {
         if (plan.jobId) {
           try {
             const jobDataResp = await getJobDataById(
@@ -405,21 +454,42 @@ router.get("/user/:userAddress/history", async (req, res) => {
               plan.jobId,
               plan.userAddress
             );
-            console.log("Line 398:", jobDataResp);
+            // Only process if there is job data and taskData is an array
             if (jobDataResp && Array.isArray(jobDataResp.data?.taskData)) {
-              jobDataResp.data?.taskData.forEach((task: any) => {
-                history.push({
-                  fromToken: plan.fromToken,
-                  toToken: plan.toToken,
-                  amount: plan.amount.toString(),
-                  jobId: plan.jobId,
-                  taskId: task.task_id,
-                  executionTimestamp: task.execution_timestamp,
-                  executionTxHash: task.execution_tx_hash,
-                  taskStatus: task.task_status,
-                  txUrl: task.tx_url,
-                });
-              });
+              for (const task of jobDataResp.data.taskData) {
+                // Only include tasks whose status is "completed" or "failed"
+                const taskStatus = String(task.task_status).toLowerCase();
+                if (taskStatus === "completed" || taskStatus === "failed") {
+                  const taskRecord: any = task;
+                  let gasFee = null;
+                  if (task.execution_tx_hash) {
+                    try {
+                      gasFee = await getTxFee(task.execution_tx_hash);
+                    } catch (feeErr) {
+                      console.warn(
+                        `Failed to fetch gas fee for tx ${task.execution_tx_hash}:`,
+                        feeErr
+                      );
+                    }
+                  }
+
+                  history.push({
+                    fromToken: plan.fromToken,
+                    toToken: plan.toToken,
+                    amount: plan.amount.toString(),
+                    slippage: plan.slippage ? plan.slippage.toString() : null,
+                    jobId: plan.jobId,
+                    taskId: task.task_id,
+                    executionTimestamp: task.execution_timestamp,
+                    executionTxHash: task.execution_tx_hash,
+                    taskStatus: task.task_status,
+                    txUrl: task.tx_url,
+                    fromAmount: taskRecord?.fromAmount ?? null,
+                    toAmount: taskRecord?.toAmount ?? null,
+                    gasFee:gasFee?.totalFeeETH,
+                  });
+                }
+              }
             }
           } catch (err) {
             console.warn(
@@ -434,7 +504,7 @@ router.get("/user/:userAddress/history", async (req, res) => {
     res.json({
       success: true,
       data: history,
-      message: `Found ${history.length} task executions for user ${userAddress}`,
+      message: `Found ${history.length} completed/failed task executions for user ${userAddress}`,
     });
   } catch (error) {
     console.error("Error fetching user job/task history:", error);
@@ -445,6 +515,12 @@ router.get("/user/:userAddress/history", async (req, res) => {
     });
   }
 });
+//
+// --- Notes: ---
+// - Only tasks with status 'completed' or 'failed' are returned.
+// - Tasks in "process" are not returned.
+// - Slippage is included for each item.
+// - Conversion rate is toAmount / fromAmount, if available and fromAmount !== 0.
 
 // Get execution history for a plan
 router.get("/history/:planId", async (req, res) => {
@@ -1009,7 +1085,7 @@ router.get("/platform-stats", async (req, res) => {
     for (let i = 0; i < dcaPlans.length; i += batchSize) {
       const batch = dcaPlans.slice(i, i + batchSize);
       await Promise.all(
-        batch.map(async (plan) => {
+        batch.map(async (plan:any) => {
           if (!plan.jobId) return;
 
           try {
@@ -1204,7 +1280,7 @@ router.get("/platform-stats", async (req, res) => {
       });
 
       usernameMap = new Map(
-        userRecords.map((record) => [record.fid.toString(), record.username])
+        userRecords.map((record:any) => [record.fid.toString(), record.username])
       );
     }
 
