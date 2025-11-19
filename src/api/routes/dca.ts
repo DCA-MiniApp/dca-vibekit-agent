@@ -38,6 +38,56 @@ async function getTxFee(txHash: string) {
   };
 }
 
+function calculateNextExecutionFromTasks(plan: any, jobData: any): string | null {
+  const defaultNextExecution = plan.nextExecution?.toISOString() ?? null;
+
+  if (
+    !jobData ||
+    jobData.success !== true ||
+    !jobData.data ||
+    !jobData.data.jobData ||
+    !Array.isArray(jobData.data.jobData.task_ids) ||
+    jobData.data.jobData.task_ids.length <= 1
+  ) {
+    return defaultNextExecution;
+  }
+
+  const taskIds: number[] = jobData.data.jobData.task_ids;
+  const previousTaskId = taskIds[taskIds.length - 2];
+
+  if (
+    !previousTaskId ||
+    !Array.isArray(jobData.data.taskData) ||
+    jobData.data.taskData.length === 0
+  ) {
+    return defaultNextExecution;
+  }
+
+  const previousTask = jobData.data.taskData.find(
+    (task: any) => task.task_id === previousTaskId
+  );
+
+  const prevExecutionTimestamp = previousTask?.execution_timestamp;
+  if (
+    !prevExecutionTimestamp ||
+    prevExecutionTimestamp === "0001-01-01T00:00:00Z"
+  ) {
+    return defaultNextExecution;
+  }
+
+  const prevDate = new Date(prevExecutionTimestamp);
+  if (Number.isNaN(prevDate.getTime())) {
+    return defaultNextExecution;
+  }
+
+  const intervalMs = (plan.intervalMinutes || 0) * 60 * 1000;
+  if (!intervalMs) {
+    return defaultNextExecution;
+  }
+
+  return new Date(prevDate.getTime() + intervalMs).toISOString();
+}
+
 // Create DCA Plan
 router.post("/create", async (req, res) => {
   try {
@@ -179,6 +229,7 @@ router.get("/plans/:userAddress", async (req, res) => {
             );
           }
         }
+        const computedNextExecution = calculateNextExecutionFromTasks(plan, jobData);
         return {
           id: plan.id,
           userAddress: plan.userAddress,
@@ -188,7 +239,7 @@ router.get("/plans/:userAddress", async (req, res) => {
           intervalMinutes: plan.intervalMinutes,
           durationWeeks: parseFloat(plan.durationWeeks.toString()),
           status: plan.status as any,
-          nextExecution: plan.nextExecution?.toISOString() || null,
+          nextExecution: computedNextExecution,
           executionCount: plan.executionCount,
           totalExecutions: plan.totalExecutions,
           slippage: plan.slippage.toString(),
