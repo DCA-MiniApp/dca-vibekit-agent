@@ -636,11 +636,55 @@ router.get("/history/:planId", async (req, res) => {
 // Platform statistics (duplicate of /api/status/stats for convenience)
 router.get("/stats", async (req, res) => {
   try {
+    const triggerxClient = new TriggerXClient(process.env.TRIGGERX_API_KEY || "");
+
+    // Get all DCA plans with jobId
+    const dcaPlans = await prisma.dcaPlan.findMany({
+      where: {
+        jobId: { not: null },
+      },
+      select: {
+        jobId: true,
+        userAddress: true,
+        updatedAt: true,
+      },
+    });
+
+    // Helper to check if job status is completed
+    async function isJobCompleted(jobId: string, userAddress: string) {
+      try {
+        const jobData = await getJobDataById(triggerxClient, jobId, userAddress);
+        return jobData?.data?.jobData?.status === "completed";
+      } catch {
+        return false;
+      }
+    }
+
+    // Calculate totalExecutions
+    let totalExecutions = 0;
+    let last24hExecutions = 0;
+    let last7dExecutions = 0;
+    const now = new Date();
+    const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    await Promise.all(
+      dcaPlans.map(async (plan) => {
+        if (plan.jobId) {
+          const completed = await isJobCompleted(plan.jobId, plan.userAddress);
+          if (completed) {
+            totalExecutions++;
+            if (plan.updatedAt >= last24h) last24hExecutions++;
+            if (plan.updatedAt >= last7d) last7dExecutions++;
+          }
+        }
+      })
+    );
+
     // Get current counts
-    const [totalPlans, activePlans, totalExecutions] = await Promise.all([
+    const [totalPlans, activePlans] = await Promise.all([
       prisma.dcaPlan.count(),
       prisma.dcaPlan.count({ where: { status: "ACTIVE" } }),
-      prisma.executionHistory.count(),
     ]);
 
     // Get unique users count
@@ -648,26 +692,6 @@ router.get("/stats", async (req, res) => {
       by: ["userAddress"],
       _count: true,
     });
-
-    // Get recent executions (last 24 hours and 7 days)
-    const now = new Date();
-    const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-
-    const [last24hExecutions, last7dExecutions] = await Promise.all([
-      prisma.executionHistory.count({
-        where: {
-          executedAt: { gte: last24h },
-          status: "SUCCESS",
-        },
-      }),
-      prisma.executionHistory.count({
-        where: {
-          executedAt: { gte: last7d },
-          status: "SUCCESS",
-        },
-      }),
-    ]);
 
     const stats: PlatformStatsResponse = {
       totalPlans,
