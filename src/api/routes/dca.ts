@@ -537,6 +537,7 @@ router.get("/user/:userAddress/history", async (req, res) => {
                     txUrl: task.tx_url,
                     fromAmount: taskRecord?.fromAmount ?? null,
                     toAmount: taskRecord?.toAmount ?? null,
+                    tgCostETH: taskRecord?.task_opx_cost?? null,
                     gasFee:gasFee?.totalFeeETH,
                   });
                 }
@@ -1108,6 +1109,8 @@ router.get("/platform-stats", async (req, res) => {
       process.env.TRIGGERX_API_KEY || ""
     );
 
+    console.log("Request headers:", req.headers);
+
     // 1. Fetch all DCA plans with jobId
     const dcaPlans = await prisma.dcaPlan.findMany({
       where: {
@@ -1377,8 +1380,17 @@ router.get("/platform-stats", async (req, res) => {
     );
     const totalUniqueUsers = uniqueUserAddresses.size;
 
+
+    
+
+    const isHomeRequest =
+      typeof req.headers["ishome"] === "string" &&
+      req.headers["ishome"]?.toLowerCase() === "true";
+
+
+
     // Build response
-    const response = {
+    const fullResponse = {
       total_unique_user: totalUniqueUsers,
       total_job_live_count: totalJobLiveCount,
       total_job_failed: totalJobFailed,
@@ -1402,6 +1414,15 @@ router.get("/platform-stats", async (req, res) => {
       })),
       last_update: new Date().toISOString(),
     };
+
+    const response = isHomeRequest
+      ? {
+          total_job_live_count: fullResponse.total_job_live_count,
+          total_value_swapped: fullResponse.total_value_swapped,
+          last_update: fullResponse.last_update,
+        }
+      : fullResponse;
+
 
     return res.json({
       success: true,
