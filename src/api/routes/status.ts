@@ -42,7 +42,7 @@ router.get('/stats', async (req, res) => {
     
     const stats: PlatformStatsResponse = {
       totalPlans,
-      activePlans,
+      // activePlans,
       totalUsers: uniqueUsers.length,
       totalExecutions,
       last24hExecutions,

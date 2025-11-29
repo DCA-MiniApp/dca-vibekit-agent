@@ -148,7 +148,6 @@ export interface ExecutionHistoryResponse {
 
 export interface PlatformStatsResponse {
   totalPlans: number;
-  activePlans: number;
   totalUsers: number;
   totalExecutions: number;
   last24hExecutions: number;

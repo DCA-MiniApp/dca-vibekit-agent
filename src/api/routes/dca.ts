@@ -826,10 +826,7 @@ router.get("/stats", async (req, res) => {
     );
 
     // Get current counts
-    const [totalPlans, activePlans] = await Promise.all([
-      prisma.dcaPlan.count(),
-      prisma.dcaPlan.count({ where: { status: "ACTIVE" } }),
-    ]);
+    const totalPlans = await prisma.dcaPlan.count();
 
     // Get unique users count
     const uniqueUsers = await prisma.dcaPlan.groupBy({
@@ -839,7 +836,6 @@ router.get("/stats", async (req, res) => {
 
     const stats: PlatformStatsResponse = {
       totalPlans,
-      activePlans,
       totalUsers: uniqueUsers.length,
       totalExecutions,
       last24hExecutions,
