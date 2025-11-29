@@ -15,11 +15,11 @@ const router: Router = Router();
 import { ethers } from "ethers";
 
 async function getTxFee(txHash: string) {
-  const provider = new ethers.JsonRpcProvider('https://arb1.arbitrum.io/rpc');
-  
+  const provider = new ethers.JsonRpcProvider("https://arb1.arbitrum.io/rpc");
+
   const [tx, receipt] = await Promise.all([
     provider.getTransaction(txHash),
-    provider.getTransactionReceipt(txHash)
+    provider.getTransactionReceipt(txHash),
   ]);
 
   if (!tx || !receipt) {
@@ -38,7 +38,113 @@ async function getTxFee(txHash: string) {
   };
 }
 
-function calculateNextExecutionFromTasks(plan: any, jobData: any): string | null {
+// --- On-chain conversion rate helper (Arbitrum) ---
+const ERC20_ABI = [
+  "function symbol() view returns (string)",
+  "function decimals() view returns (uint8)",
+];
+
+interface ConversionResult {
+  inputAmount: string;
+  outputAmount: string;
+  conversionRate: string;
+}
+
+/**
+ * Get conversion rate from an Arbitrum transaction
+ * @param userAddress - The user's wallet address
+ * @param txHash - The transaction hash
+ * @returns Object containing inputAmount, outputAmount, and conversionRate
+ */
+async function getConversionRate(
+  userAddress: string,
+  txHash: string
+): Promise<ConversionResult> {
+  const ARBITRUM_RPC = "https://arb1.arbitrum.io/rpc";
+
+  const provider = new ethers.JsonRpcProvider(ARBITRUM_RPC);
+
+  const receipt = await provider.getTransactionReceipt(txHash);
+
+  if (!receipt) {
+    throw new Error("Transaction not found");
+  }
+
+  // ERC20 Transfer event signature
+  const transferTopic =
+    "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
+  let inputToken: { address: string; amount: string } | null = null;
+  let outputToken: { address: string; amount: string } | null = null;
+
+  for (const log of receipt.logs) {
+    if (log.topics.length >= 3 && log.topics[0] === transferTopic) {
+      const from = `0x${log.topics[1]!.slice(26)}`;
+      const to = `0x${log.topics[2]!.slice(26)}`;
+      const amount = log.data; // hex string
+
+      // User receiving tokens (output)
+      if (to.toLowerCase() === userAddress.toLowerCase()) {
+        if (!outputToken) {
+          outputToken = {
+            address: log.address,
+            amount,
+          };
+        }
+      }
+
+      // User sending tokens (input)
+      if (from.toLowerCase() === userAddress.toLowerCase()) {
+        if (!inputToken) {
+          inputToken = {
+            address: log.address,
+            amount,
+          };
+        }
+      }
+    }
+  }
+
+  if (!inputToken || !outputToken) {
+    throw new Error("Could not find token transfers for this address");
+  }
+
+  const inputContract = new ethers.Contract(
+    inputToken.address,
+    ERC20_ABI,
+    provider
+  );
+  const outputContract = new ethers.Contract(
+    outputToken.address,
+    ERC20_ABI,
+    provider
+  );
+
+  const [inputDecimals, outputDecimals] = await Promise.all([
+    (inputContract as any).decimals(),
+    (outputContract as any).decimals(),
+  ]);
+
+  const inputAmount = ethers.formatUnits(inputToken.amount, inputDecimals);
+  const outputAmount = ethers.formatUnits(outputToken.amount, outputDecimals);
+
+  const inputNum = parseFloat(inputAmount);
+  const outputNum = parseFloat(outputAmount);
+  const conversionRate =
+    !Number.isFinite(inputNum) || inputNum === 0
+      ? "0"
+      : (outputNum / inputNum).toFixed(6);
+  return {
+    inputAmount: inputNum.toString(),
+    outputAmount: outputNum.toString(),
+    conversionRate,
+  };
+}
+
+function calculateNextExecutionFromTasks(
+  plan: any,
+  jobData: any
+): string | null {
   const defaultNextExecution = plan.nextExecution?.toISOString() ?? null;
 
   if (
@@ -217,11 +323,15 @@ router.get("/plans/:userAddress", async (req, res) => {
 
     // Fetch job data for each plan (in parallel)
     const formattedPlans: DCAPlanResponse[] = await Promise.all(
-      dcaPlans.map(async (plan:any) => {
+      dcaPlans.map(async (plan: any) => {
         let jobData = null;
         if (plan.jobId) {
           try {
-            jobData = await getJobDataById(triggerxClient, plan.jobId,plan.userAddress);
+            jobData = await getJobDataById(
+              triggerxClient,
+              plan.jobId,
+              plan.userAddress
+            );
           } catch (err) {
             console.warn(
               `Failed to fetch job data for jobId ${plan.jobId}:`,
@@ -229,7 +339,10 @@ router.get("/plans/:userAddress", async (req, res) => {
             );
           }
         }
-        const computedNextExecution = calculateNextExecutionFromTasks(plan, jobData);
+        const computedNextExecution = calculateNextExecutionFromTasks(
+          plan,
+          jobData
+        );
         return {
           id: plan.id,
           userAddress: plan.userAddress,
@@ -251,7 +364,7 @@ router.get("/plans/:userAddress", async (req, res) => {
           // Compute successCount based on jobData
           successCount: (() => {
             // The completed status we're checking for
-            const COMPLETED_STATUS = 'completed';
+            const COMPLETED_STATUS = "completed";
             // Check jobData exists and taskData array is present
             if (
               jobData &&
@@ -261,13 +374,14 @@ router.get("/plans/:userAddress", async (req, res) => {
             ) {
               // Count taskData entries with task_status === 'completed'
               return jobData.data.taskData.filter(
-                (task: any) => String(task.task_status).toLowerCase() === COMPLETED_STATUS
+                (task: any) =>
+                  String(task.task_status).toLowerCase() === COMPLETED_STATUS
               ).length;
             }
             return 0;
           })(),
           jobDataStatus: (() => {
-            if(jobData && jobData.success === true && jobData.data) {
+            if (jobData && jobData.success === true && jobData.data) {
               return jobData.data.jobData.status;
             }
             return null;
@@ -524,6 +638,26 @@ router.get("/user/:userAddress/history", async (req, res) => {
                     }
                   }
 
+                  let exchangeRate: string | null = null;
+                  let inputAmount: string | null = null;
+                  let outputAmount: string | null = null;
+                  if (task.execution_tx_hash) {
+                    try {
+                      const conv = await getConversionRate(
+                        plan.userAddress,
+                        task.execution_tx_hash
+                      );
+                      exchangeRate = conv.conversionRate;
+                      inputAmount = conv.inputAmount;
+                      outputAmount = conv.outputAmount;
+                    } catch (convErr) {
+                      console.warn(
+                        `Failed to fetch exchange rate for tx ${task.execution_tx_hash}:`,
+                        convErr
+                      );
+                    }
+                  }
+
                   history.push({
                     fromToken: plan.fromToken,
                     toToken: plan.toToken,
@@ -537,8 +671,11 @@ router.get("/user/:userAddress/history", async (req, res) => {
                     txUrl: task.tx_url,
                     fromAmount: taskRecord?.fromAmount ?? null,
                     toAmount: taskRecord?.toAmount ?? null,
-                    tgCostETH: taskRecord?.task_opx_cost?? null,
-                    gasFee:gasFee?.totalFeeETH,
+                    tgCostETH: taskRecord?.task_opx_cost ?? null,
+                    gasFee: gasFee?.totalFeeETH,
+                    exchangeRate: exchangeRate ?? null,
+                    inputAmount: inputAmount ?? null,
+                    outputAmount: outputAmount ?? null,
                   });
                 }
               }
@@ -602,7 +739,7 @@ router.get("/history/:planId", async (req, res) => {
       skip: parseInt(offset as string),
     });
 
-    const formattedExecutions = executions.map((execution:any) => ({
+    const formattedExecutions = executions.map((execution: any) => ({
       id: execution.id,
       planId: execution.planId,
       executedAt: execution.executedAt.toISOString(),
@@ -637,7 +774,9 @@ router.get("/history/:planId", async (req, res) => {
 // Platform statistics (duplicate of /api/status/stats for convenience)
 router.get("/stats", async (req, res) => {
   try {
-    const triggerxClient = new TriggerXClient(process.env.TRIGGERX_API_KEY || "");
+    const triggerxClient = new TriggerXClient(
+      process.env.TRIGGERX_API_KEY || ""
+    );
 
     // Get all DCA plans with jobId
     const dcaPlans = await prisma.dcaPlan.findMany({
@@ -654,7 +793,11 @@ router.get("/stats", async (req, res) => {
     // Helper to check if job status is completed
     async function isJobCompleted(jobId: string, userAddress: string) {
       try {
-        const jobData = await getJobDataById(triggerxClient, jobId, userAddress);
+        const jobData = await getJobDataById(
+          triggerxClient,
+          jobId,
+          userAddress
+        );
         return jobData?.data?.jobData?.status === "completed";
       } catch {
         return false;
@@ -1050,57 +1193,59 @@ router.post("/token-notification", async (req, res) => {
 });
 
 // Get successful task count for a job
-router.get("/userAddress/:userAddress/job/:jobId/success-count", async (req, res) => {
-  try {
-    const { jobId,userAddress } = req.params;
+router.get(
+  "/userAddress/:userAddress/job/:jobId/success-count",
+  async (req, res) => {
+    try {
+      const { jobId, userAddress } = req.params;
 
-    if (!jobId) {
-      return res.status(400).json({
+      if (!jobId) {
+        return res.status(400).json({
+          success: false,
+          error: "Missing required parameter: jobId",
+        });
+      }
+
+      const triggerxClient = new TriggerXClient(
+        process.env.TRIGGERX_API_KEY || ""
+      );
+
+      // Fetch job data using SDK
+      const jobData = await getJobDataById(triggerxClient, jobId, userAddress);
+
+      if (!jobData || !Array.isArray(jobData.data?.taskData)) {
+        return res.status(404).json({
+          success: false,
+          error: "Job not found or no task data available",
+        });
+      }
+
+      // Count successful tasks
+      const successCount = jobData.data?.taskData.filter(
+        (task: any) => task.task_status === "completed"
+      ).length;
+
+      return res.json({
+        success: true,
+        data: {
+          jobId,
+          successCount,
+          totalTasks: jobData.data?.taskData.length,
+        },
+        message: `Found ${successCount} successful tasks out of ${jobData.data?.taskData?.length} total tasks`,
+      });
+    } catch (err: any) {
+      const status = err?.response?.status ?? 502;
+      const data = err?.response?.data ?? err?.message ?? "Upstream error";
+      console.error("TriggerX error:", { status, data });
+      return res.status(status).json({
         success: false,
-        error: "Missing required parameter: jobId",
+        error: "TriggerX request failed",
+        details: data,
       });
     }
-
-    const triggerxClient = new TriggerXClient(
-      process.env.TRIGGERX_API_KEY || ""
-    );
-
-    // Fetch job data using SDK
-    const jobData = await getJobDataById(triggerxClient, jobId,userAddress);
-
-    if (!jobData || !Array.isArray(jobData.data?.taskData)) {
-      return res.status(404).json({
-        success: false,
-        error: "Job not found or no task data available",
-      });
-    }
-
-    // Count successful tasks
-    const successCount = jobData.data?.taskData.filter(
-      (task: any) => task.task_status === "completed"
-    ).length;
-
-    return res.json({
-      success: true,
-      data: {
-        jobId,
-        successCount,
-        totalTasks: jobData.data?.taskData.length,
-      },
-      message: `Found ${successCount} successful tasks out of ${jobData.data?.taskData?.length} total tasks`,
-    });
-  } catch (err: any) {
-    const status = err?.response?.status ?? 502;
-    const data = err?.response?.data ?? err?.message ?? "Upstream error";
-    console.error("TriggerX error:", { status, data });
-    return res.status(status).json({
-      success: false,
-      error: "TriggerX request failed",
-      details: data,
-    });
   }
-});
-
+);
 
 // Get aggregated platform statistics with user details
 router.get("/platform-stats", async (req, res) => {
@@ -1163,7 +1308,7 @@ router.get("/platform-stats", async (req, res) => {
     for (let i = 0; i < dcaPlans.length; i += batchSize) {
       const batch = dcaPlans.slice(i, i + batchSize);
       await Promise.all(
-        batch.map(async (plan:any) => {
+        batch.map(async (plan: any) => {
           if (!plan.jobId) return;
 
           try {
@@ -1175,9 +1320,7 @@ router.get("/platform-stats", async (req, res) => {
             );
 
             if (!jobDataResp || !jobDataResp.success) {
-              console.warn(
-                `Failed to fetch job data for jobId ${plan.jobId}`
-              );
+              console.warn(`Failed to fetch job data for jobId ${plan.jobId}`);
               return;
             }
 
@@ -1191,8 +1334,8 @@ router.get("/platform-stats", async (req, res) => {
             // Extract required fields
             const status = jobData.status || "unknown";
             const taskIds = jobData.task_ids || [];
-            const taskOpxCosts = taskData.map(
-              (task: any) => parseFloat(task.task_opx_cost || "0")
+            const taskOpxCosts = taskData.map((task: any) =>
+              parseFloat(task.task_opx_cost || "0")
             );
 
             // Calculate TG cost: sum of all task_opx_cost * 10^-3
@@ -1228,7 +1371,11 @@ router.get("/platform-stats", async (req, res) => {
               } else {
                 totalJobLiveCount++;
               }
-            } else if (status === "running" || status === "pending" || status === "processing") {
+            } else if (
+              status === "running" ||
+              status === "pending" ||
+              status === "processing"
+            ) {
               totalJobProcessing++;
             } else if (status === "failed" || status === "cancelled") {
               totalJobFailed++;
@@ -1246,13 +1393,13 @@ router.get("/platform-stats", async (req, res) => {
               if (cost === 0) {
                 return "0(eth)";
               }
-              
+
               // For very small numbers, we need to show enough decimal places
               // Use a helper to convert scientific notation to decimal string
               const convertToDecimalString = (num: number): string => {
                 // Check if the number would be displayed in scientific notation
                 const str = num.toString();
-                if (str.includes('e') || str.includes('E')) {
+                if (str.includes("e") || str.includes("E")) {
                   // Parse scientific notation
                   const match = str.match(/^([\d.]+)[eE]([+-]?\d+)$/);
                   if (match && match[1] && match[2]) {
@@ -1267,17 +1414,17 @@ router.get("/platform-stats", async (req, res) => {
                 }
                 return str;
               };
-              
+
               let decimalStr = convertToDecimalString(cost);
               // Remove trailing zeros but keep at least one digit after decimal if it's a decimal number
-              if (decimalStr.includes('.')) {
-                decimalStr = decimalStr.replace(/\.?0+$/, '');
+              if (decimalStr.includes(".")) {
+                decimalStr = decimalStr.replace(/\.?0+$/, "");
                 // Ensure we don't remove the decimal point if there are no digits after
-                if (decimalStr.endsWith('.')) {
+                if (decimalStr.endsWith(".")) {
                   decimalStr = decimalStr.slice(0, -1);
                 }
               }
-              
+
               return `${decimalStr}(eth)`;
             };
 
@@ -1339,7 +1486,7 @@ router.get("/platform-stats", async (req, res) => {
     const fidsToLookup = Array.from(
       new Set(
         users
-          .map((user) => (user.fid ?? null))
+          .map((user) => user.fid ?? null)
           .filter((fid): fid is number => fid !== null)
       )
     );
@@ -1358,14 +1505,17 @@ router.get("/platform-stats", async (req, res) => {
       });
 
       usernameMap = new Map(
-        userRecords.map((record:any) => [record.fid.toString(), record.username])
+        userRecords.map((record: any) => [
+          record.fid.toString(),
+          record.username,
+        ])
       );
     }
 
     const enrichedUsers = users.map((user) => {
       const username =
         user.fid !== null && user.fid !== undefined
-          ? usernameMap.get(user.fid.toString()) ?? null
+          ? (usernameMap.get(user.fid.toString()) ?? null)
           : null;
 
       return {
@@ -1380,14 +1530,9 @@ router.get("/platform-stats", async (req, res) => {
     );
     const totalUniqueUsers = uniqueUserAddresses.size;
 
-
-    
-
     const isHomeRequest =
       typeof req.headers["ishome"] === "string" &&
       req.headers["ishome"]?.toLowerCase() === "true";
-
-
 
     // Build response
     const fullResponse = {
@@ -1423,7 +1568,6 @@ router.get("/platform-stats", async (req, res) => {
         }
       : fullResponse;
 
-
     return res.json({
       success: true,
       data: response,
@@ -1438,7 +1582,5 @@ router.get("/platform-stats", async (req, res) => {
     });
   }
 });
-
-
 
 export { router as dcaRoutes };
