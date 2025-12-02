@@ -8,8 +8,7 @@ import {
   type PlatformStatsResponse,
   type ApiResponse,
 } from "../../types/shared.js";
-import { TriggerXClient } from "sdk-triggerx";
-import { getJobDataById } from "sdk-triggerx";
+import { getJobDataById,TriggerXClient } from "sdk-triggerx";
 import { getTokenPrice } from "../../utils/tokenPrice.js";
 const router: Router = Router();
 import { ethers } from "ethers";
@@ -983,6 +982,192 @@ router.get("/users/failed-tasks", async (req, res) => {
       success: false,
       error: "Internal Server Error",
       message: "Failed to fetch failed tasks",
+    });
+  }
+});
+
+// Get users with low TG balance countdown warnings (3, 2, 1 executions remaining)
+router.get("/users/low-balance-warnings", async (req, res) => {
+  try {
+    // 1. Get all plans with jobId
+    const plans = await prisma.dcaPlan.findMany({
+      where: {
+        jobId: {
+          not: null,
+        },
+      },
+      select: {
+        userAddress: true,
+        jobId: true,
+        fid: true,
+        id: true,
+      },
+    });
+
+    console.log(`[Balance Check] Checking ${plans.length} active plans for low balance`);
+
+    const triggerxClient = new TriggerXClient(
+      process.env.TRIGGERX_API_KEY || ""
+    );
+
+    // 2. For each plan, get jobData and compute remaining executions
+    const lowBalanceWarnings: {
+      userAddress: string;
+      jobId: string;
+      planId: string;
+      fid: number | null;
+      jobCostPrediction: number;
+      totalTaskCost: number;
+      percentageUsed: number;
+      remainingExecutions: number;
+    }[] = [];
+
+    // Process in batches to avoid overwhelming the API
+    const batchSize = 10;
+    for (let i = 0; i < plans.length; i += batchSize) {
+      const batch = plans.slice(i, i + batchSize);
+      
+      await Promise.all(
+        batch.map(async (plan) => {
+          if (!plan.jobId) return;
+
+          try {
+            const jobDataResp = await getJobDataById(
+              triggerxClient,
+              plan.jobId,
+              plan.userAddress
+            );
+
+            console.log("Jobdatatresp:", jobDataResp);
+
+            if (!jobDataResp || !jobDataResp.success) {
+              console.warn(
+                `[Balance Check] Failed to fetch job data for jobId ${plan.jobId}`
+              );
+              return;
+            }
+
+            const jobData = jobDataResp.data?.jobData;
+            const taskData = jobDataResp.data?.taskData || [];
+
+            if (!jobData) {
+              return;
+            }
+
+            // Skip if job is already completed, failed, pending, or deleted
+            const status = jobData.status?.toLowerCase();
+            // if (status === "completed" || status === "failed" || status === "pending" || status === "deleted") {
+            //   return;
+            // }
+
+            // Get job_cost_prediction (in smallest unit, needs conversion)
+            const jobCostPrediction = parseFloat(
+              jobData.job_cost_prediction?.toString() || "0"
+            );
+
+            // If no prediction available, skip
+            if (jobCostPrediction === 0) {
+              return;
+            }
+
+            // Consider only tasks that have actually consumed TG (completed or processing)
+            const tasksWithCost = taskData.filter((task: any) => {
+              const tStatus = String(task.task_status).toLowerCase();
+              return (
+                (tStatus === "completed" || tStatus === "processing") &&
+                task.task_opx_cost !== undefined &&
+                task.task_opx_cost !== null
+              );
+            });
+
+            // console.log("Tasks with cost:", tasksWithCost);
+
+            const taskOpxCosts = tasksWithCost.map((task: any) =>
+              parseFloat(task.task_opx_cost?.toString() || "0")
+            );
+
+            const totalTaskCost = taskOpxCosts.reduce(
+              (sum: number, cost: number) => sum + cost,
+              0
+            );
+
+            // // If we have no meaningful cost data yet, skip countdown for this job
+            // if (tasksWithCost.length === 0 || totalTaskCost <= 0) {
+            //   return;
+            // }
+
+            // Average cost per execution for this job
+            const avgTaskCost = totalTaskCost / tasksWithCost.length;
+            if (!Number.isFinite(avgTaskCost) || avgTaskCost <= 0) {
+              return;
+            }
+
+            console.log("Avg task cost:", avgTaskCost);
+
+            // Remaining budget and executions before TG is exhausted
+            const remainingBudget = jobCostPrediction - totalTaskCost;
+            if (remainingBudget <= 0) {
+              // Already exhausted or over-spent; other flows (failed/low-balance) will catch this
+              return;
+            }
+
+            console.log("Remaining budget:", remainingBudget);
+
+            const remainingExecutions = Math.floor(remainingBudget / avgTaskCost);
+
+            // Only trigger countdown notifications when exactly 3, 2, or 1 executions remain
+            if (remainingExecutions === 3 || remainingExecutions === 2 || remainingExecutions === 1) {
+              const percentageUsed =
+                (totalTaskCost / jobCostPrediction) * 100;
+
+              lowBalanceWarnings.push({
+                userAddress: plan.userAddress,
+                jobId: plan.jobId,
+                planId: plan.id,
+                fid: plan.fid ?? null,
+                jobCostPrediction,
+                totalTaskCost,
+                percentageUsed: Number(percentageUsed.toFixed(2)),
+                remainingExecutions,
+              });
+
+              console.log(
+                `[Balance Check] Countdown: User ${plan.userAddress}, Job ${plan.jobId}, ` +
+                  `${remainingExecutions} executions remaining (used ${percentageUsed.toFixed(
+                    2
+                  )}% of predicted cost)`
+              );
+            }
+          } catch (err) {
+            console.warn(
+              `[Balance Check] Error processing plan ${plan.id} (jobId ${plan.jobId}):`,
+              err
+            );
+          }
+        })
+      );
+
+      // Small delay between batches to avoid rate limiting
+      if (i + batchSize < plans.length) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+
+    console.log(
+      `[Balance Check] Found ${lowBalanceWarnings.length} plans with low balance`
+    );
+
+    res.json({
+      success: true,
+      data: lowBalanceWarnings,
+      message: `Found ${lowBalanceWarnings.length} plans with low TG balance (>=70% used)`,
+    });
+  } catch (error) {
+    console.error("[Balance Check] Error fetching low balance warnings:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to fetch low balance warnings",
     });
   }
 });

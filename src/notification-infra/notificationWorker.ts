@@ -42,6 +42,7 @@ const worker = new Worker<TxFailedPayload>(
   "notifications",
   async (job: Job<TxFailedPayload>) => {
     const { 
+      notificationType,
       userAddress, 
       taskId, 
       jobId, 
@@ -50,16 +51,20 @@ const worker = new Worker<TxFailedPayload>(
       chainId, 
       reason, 
       idempotencyKey,
-      fid 
+      fid,
+      jobCostPrediction,
+      totalTaskCost,
+      percentageUsed,
     } = job.data;
 
-    console.log(`[Notification] Processing job ${job.id} (job ${jobId}, task ${taskId}, user ${userAddress})`);
+    const notificationTypeLabel = notificationType || "failed-task";
+    console.log(`[Notification] Processing ${notificationTypeLabel} job ${job.id} (job ${jobId}, user ${userAddress})`);
     console.log(`[Notification] Idempotency key: ${idempotencyKey}`);
 
     // Validate fid - required for notifications
     if (!fid) {
       console.warn(
-        `[Notification] Missing fid for user ${userAddress} (job: ${jobId}, task: ${taskId}). Skipping notification.`
+        `[Notification] Missing fid for user ${userAddress} (job: ${jobId}). Skipping notification.`
       );
       return;
     }
@@ -74,6 +79,8 @@ const worker = new Worker<TxFailedPayload>(
         { timeout: 10000 }
       );
 
+      
+
       const notificationDetails = notificationRes.data as { 
         success?: boolean;
         data?: { 
@@ -84,23 +91,43 @@ const worker = new Worker<TxFailedPayload>(
 
       const { notificationtoken, notification_url } = notificationDetails.data ?? {};
 
-      // Send notification to frontend gateway (/api/tx-events -> Neynar)
-      console.log(`[Notification] Sending notification to frontend for fid ${fid}...`);
-      await axios.post(
-        `${FRONTEND_BASE}/api/tx-events`,
-        {
-          fid,
+      // Prepare notification payload based on type
+      let notificationPayload: any = {
+        fid,
+        notificationtoken,
+        notification_url,
+        userAddress,
+        jobId,
+        planId,
+      };
+
+      if (notificationType === "low-balance-warning") {
+        // Low balance warning notification
+        notificationPayload = {
+          ...notificationPayload,
+          status: "low-balance",
+          reason: reason || "TG balance insufficient",
+          jobCostPrediction,
+          totalTaskCost,
+          percentageUsed,
+        };
+      } else {
+        // Failed task notification (existing logic)
+        notificationPayload = {
+          ...notificationPayload,
           status: "failed",
           txHash,
           chainId,
-          planId,
           reason: reason || "plan failed",
-          notificationtoken,
-          notification_url,
-          userAddress,
-          jobId,
           taskId,
-        },
+        };
+      }
+
+      // Send notification to frontend gateway
+      console.log(`[Notification] Sending ${notificationTypeLabel} notification to frontend for fid ${fid}...`);
+      await axios.post(
+        `${FRONTEND_BASE}/api/tx-events`,
+        notificationPayload,
         { 
           timeout: 12000,
           headers: {
@@ -109,8 +136,9 @@ const worker = new Worker<TxFailedPayload>(
         }
       );
 
+      const taskInfo = taskId ? `task ${taskId}` : "";
       console.log(
-        `[Notification] ✅ Successfully sent notification (job ${jobId}, task ${taskId}, fid ${fid})`
+        `[Notification] ✅ Successfully sent ${notificationTypeLabel} notification (job ${jobId}${taskInfo ? `, ${taskInfo}` : ""}, fid ${fid})`
       );
     } catch (error: any) {
       const status = error?.response?.status;
@@ -119,8 +147,9 @@ const worker = new Worker<TxFailedPayload>(
         ? `API error: ${error.response.status} - ${error.response.statusText}`
         : error.message || "Unknown error";
       
+      const taskInfo = taskId ? `task ${taskId}` : "";
       console.error(
-        `[Notification] ❌ Failed to send notification (job ${jobId}, task ${taskId}): ${errorMessage}`
+        `[Notification] ❌ Failed to send ${notificationTypeLabel} notification (job ${jobId}${taskInfo ? `, ${taskInfo}` : ""}): ${errorMessage}`
       );
       
       // Re-throw to trigger BullMQ retry mechanism

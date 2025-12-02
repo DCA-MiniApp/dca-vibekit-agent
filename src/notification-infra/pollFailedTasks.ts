@@ -98,6 +98,7 @@ export async function pollFailedTasksOnce() {
         "sendNotification",
         {
           idempotencyKey,
+          notificationType: "failed-task",
           jobId,
           taskId,
           userAddress,

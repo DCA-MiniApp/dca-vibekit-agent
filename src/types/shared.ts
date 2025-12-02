@@ -26,8 +26,8 @@ export const CreateDCAPlanSchema = z.object({
     .max(43200) // Max 30 days
     .describe("Execution interval in minutes"),
   durationWeeks: z
-    .number()
-    .min(0.006) // Minimum 0.006 weeks (about 1 hour: 1/168)
+    .number()    // Minimum 5 minutes expressed in weeks: 5 / (7 * 24 * 60) ≈ 0.000496
+    .min(0.0005) // Minimum ~0.0005 weeks (about 5 minutes)
     .max(260) // Max 5 years
     .describe(
       "Total investment duration in weeks (supports fractional values like 0.5, 1.25, etc.)"
