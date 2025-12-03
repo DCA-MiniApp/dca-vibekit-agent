@@ -621,62 +621,59 @@ router.get("/user/:userAddress/history", async (req, res) => {
             // Only process if there is job data and taskData is an array
             if (jobDataResp && Array.isArray(jobDataResp.data?.taskData)) {
               for (const task of jobDataResp.data.taskData) {
-                // Only include tasks whose status is "completed" or "failed"
-                const taskStatus = String(task.task_status).toLowerCase();
-                if (taskStatus === "completed" || taskStatus === "failed") {
-                  const taskRecord: any = task;
-                  let gasFee = null;
-                  if (task.execution_tx_hash) {
-                    try {
-                      gasFee = await getTxFee(task.execution_tx_hash);
-                    } catch (feeErr) {
-                      console.warn(
-                        `Failed to fetch gas fee for tx ${task.execution_tx_hash}:`,
-                        feeErr
-                      );
-                    }
+                // Include all tasks regardless of status
+                const taskRecord: any = task;
+                let gasFee = null;
+                if (task.execution_tx_hash) {
+                  try {
+                    gasFee = await getTxFee(task.execution_tx_hash);
+                  } catch (feeErr) {
+                    console.warn(
+                      `Failed to fetch gas fee for tx ${task.execution_tx_hash}:`,
+                      feeErr
+                    );
                   }
-
-                  let exchangeRate: string | null = null;
-                  let inputAmount: string | null = null;
-                  let outputAmount: string | null = null;
-                  if (task.execution_tx_hash) {
-                    try {
-                      const conv = await getConversionRate(
-                        plan.userAddress,
-                        task.execution_tx_hash
-                      );
-                      exchangeRate = conv.conversionRate;
-                      inputAmount = conv.inputAmount;
-                      outputAmount = conv.outputAmount;
-                    } catch (convErr) {
-                      console.warn(
-                        `Failed to fetch exchange rate for tx ${task.execution_tx_hash}:`,
-                        convErr
-                      );
-                    }
-                  }
-
-                  history.push({
-                    fromToken: plan.fromToken,
-                    toToken: plan.toToken,
-                    amount: plan.amount.toString(),
-                    slippage: plan.slippage ? plan.slippage.toString() : null,
-                    jobId: plan.jobId,
-                    taskId: task.task_id,
-                    executionTimestamp: task.execution_timestamp,
-                    executionTxHash: task.execution_tx_hash,
-                    taskStatus: task.task_status,
-                    txUrl: task.tx_url,
-                    fromAmount: taskRecord?.fromAmount ?? null,
-                    toAmount: taskRecord?.toAmount ?? null,
-                    tgCostETH: taskRecord?.task_opx_cost ?? null,
-                    gasFee: gasFee?.totalFeeETH,
-                    exchangeRate: exchangeRate ?? null,
-                    inputAmount: inputAmount ?? null,
-                    outputAmount: outputAmount ?? null,
-                  });
                 }
+
+                let exchangeRate: string | null = null;
+                let inputAmount: string | null = null;
+                let outputAmount: string | null = null;
+                if (task.execution_tx_hash) {
+                  try {
+                    const conv = await getConversionRate(
+                      plan.userAddress,
+                      task.execution_tx_hash
+                    );
+                    exchangeRate = conv.conversionRate;
+                    inputAmount = conv.inputAmount;
+                    outputAmount = conv.outputAmount;
+                  } catch (convErr) {
+                    console.warn(
+                      `Failed to fetch exchange rate for tx ${task.execution_tx_hash}:`,
+                      convErr
+                    );
+                  }
+                }
+
+                history.push({
+                  fromToken: plan.fromToken,
+                  toToken: plan.toToken,
+                  amount: plan.amount.toString(),
+                  slippage: plan.slippage ? plan.slippage.toString() : null,
+                  jobId: plan.jobId,
+                  taskId: task.task_id,
+                  executionTimestamp: task.execution_timestamp,
+                  executionTxHash: task.execution_tx_hash,
+                  taskStatus: task.task_status,
+                  txUrl: task.tx_url,
+                  fromAmount: taskRecord?.fromAmount ?? null,
+                  toAmount: taskRecord?.toAmount ?? null,
+                  tgCostETH: taskRecord?.task_opx_cost ?? null,
+                  gasFee: gasFee?.totalFeeETH,
+                  exchangeRate: exchangeRate ?? null,
+                  inputAmount: inputAmount ?? null,
+                  outputAmount: outputAmount ?? null,
+                });
               }
             }
           } catch (err) {
