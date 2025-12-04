@@ -8,7 +8,7 @@ import {
   type PlatformStatsResponse,
   type ApiResponse,
 } from "../../types/shared.js";
-import { getJobDataById,TriggerXClient } from "sdk-triggerx";
+import { getJobDataById, TriggerXClient, checkEthBalance } from "sdk-triggerx";
 import { getTokenPrice } from "../../utils/tokenPrice.js";
 const router: Router = Router();
 import { ethers } from "ethers";
@@ -983,7 +983,7 @@ router.get("/users/failed-tasks", async (req, res) => {
   }
 });
 
-// Get users with low TG balance countdown warnings (3, 2, 1 executions remaining)
+// Get users with low ETH wallet balance countdown warnings (3, 2, 1 executions remaining)
 router.get("/users/low-balance-warnings", async (req, res) => {
   try {
     // 1. Get all plans with jobId
@@ -1001,7 +1001,9 @@ router.get("/users/low-balance-warnings", async (req, res) => {
       },
     });
 
-    console.log(`[Balance Check] Checking ${plans.length} active plans for low balance`);
+    console.log(
+      `[Balance Check] Checking ${plans.length} active plans for low ETH wallet balance`
+    );
 
     const triggerxClient = new TriggerXClient(
       process.env.TRIGGERX_API_KEY || ""
@@ -1023,7 +1025,7 @@ router.get("/users/low-balance-warnings", async (req, res) => {
     const batchSize = 10;
     for (let i = 0; i < plans.length; i += batchSize) {
       const batch = plans.slice(i, i + batchSize);
-      
+
       await Promise.all(
         batch.map(async (plan) => {
           if (!plan.jobId) return;
@@ -1044,6 +1046,7 @@ router.get("/users/low-balance-warnings", async (req, res) => {
               return;
             }
 
+
             const jobData = jobDataResp.data?.jobData;
             const taskData = jobDataResp.data?.taskData || [];
 
@@ -1053,17 +1056,32 @@ router.get("/users/low-balance-warnings", async (req, res) => {
 
             // Skip if job is already completed, failed, pending, or deleted
             const status = jobData.status?.toLowerCase();
-            // if (status === "completed" || status === "failed" || status === "pending" || status === "deleted") {
-            //   return;
-            // }
+            if (status === "completed" || status === "failed" || status === "pending" || status === "deleted") {
+              console.log(`[Balance Check] Skipping job ${plan.jobId} with status: ${status}`);
+              return;
+            }
 
-            // Get job_cost_prediction (in smallest unit, needs conversion)
-            const jobCostPrediction = parseFloat(
-              jobData.job_cost_prediction?.toString() || "0"
-            );
+            // Get user's actual ETH balance on Arbitrum (chainId: 42161)
+            let userEthBalance: number;
+            try {
+              const balanceResponse = await checkEthBalance(plan.userAddress, 42161);
 
-            // If no prediction available, skip
-            if (jobCostPrediction === 0) {
+              // checkEthBalance returns { success, data: { ethBalanceWei, ethBalance }, error, errorCode }
+              if (!balanceResponse.success || !balanceResponse.data) {
+                console.log(`[Balance Check] Failed to fetch balance for ${plan.userAddress}: ${balanceResponse.error || 'Unknown error'}`);
+                return;
+              }
+
+              userEthBalance = parseFloat(balanceResponse.data.ethBalance || "0");
+
+              if (userEthBalance === 0 || !Number.isFinite(userEthBalance)) {
+                console.log(`[Balance Check] User ${plan.userAddress} has zero or invalid ETH balance, skipping`);
+                return;
+              }
+
+              console.log(`[Balance Check] User ${plan.userAddress} ETH balance: ${userEthBalance} ETH`);
+            } catch (balanceErr) {
+              console.warn(`[Balance Check] Failed to fetch ETH balance for ${plan.userAddress}:`, balanceErr);
               return;
             }
 
@@ -1077,7 +1095,11 @@ router.get("/users/low-balance-warnings", async (req, res) => {
               );
             });
 
-            // console.log("Tasks with cost:", tasksWithCost);
+            // If no historical task data, we can't calculate average cost
+            if (tasksWithCost.length === 0) {
+              console.log(`[Balance Check] No historical task data for job ${plan.jobId}, skipping`);
+              return;
+            }
 
             const taskOpxCosts = tasksWithCost.map((task: any) =>
               parseFloat(task.task_opx_cost?.toString() || "0")
@@ -1088,51 +1110,45 @@ router.get("/users/low-balance-warnings", async (req, res) => {
               0
             );
 
-            // // If we have no meaningful cost data yet, skip countdown for this job
-            // if (tasksWithCost.length === 0 || totalTaskCost <= 0) {
-            //   return;
-            // }
-
-            // Average cost per execution for this job
+            // Average cost per execution for this job (in ETH)
             const avgTaskCost = totalTaskCost / tasksWithCost.length;
             if (!Number.isFinite(avgTaskCost) || avgTaskCost <= 0) {
+              console.log(`[Balance Check] Invalid average task cost for job ${plan.jobId}, skipping`);
               return;
             }
 
-            console.log("Avg task cost:", avgTaskCost);
+            console.log(`[Balance Check] Job ${plan.jobId} - Avg task cost: ${avgTaskCost} ETH`);
 
-            // Remaining budget and executions before TG is exhausted
-            const remainingBudget = jobCostPrediction - totalTaskCost;
-            if (remainingBudget <= 0) {
-              // Already exhausted or over-spent; other flows (failed/low-balance) will catch this
-              return;
-            }
+            // Calculate how many more transactions the user can execute with current ETH balance
+            const remainingExecutions = Math.floor(userEthBalance / avgTaskCost);
 
-            console.log("Remaining budget:", remainingBudget);
-
-            const remainingExecutions = Math.floor(remainingBudget / avgTaskCost);
+            console.log(`[Balance Check] Job ${plan.jobId} - Remaining executions: ${remainingExecutions}`);
 
             // Only trigger countdown notifications when exactly 3, 2, or 1 executions remain
-            if (remainingExecutions === 3 || remainingExecutions === 2 || remainingExecutions === 1) {
-              const percentageUsed =
-                (totalTaskCost / jobCostPrediction) * 100;
+            if (
+              remainingExecutions === 3 ||
+              remainingExecutions === 2 ||
+              remainingExecutions === 1
+            ) {
+              // Calculate percentage of balance that would be used
+              const projectedCost = avgTaskCost * remainingExecutions;
+              const percentageRemaining = (projectedCost / userEthBalance) * 100;
 
               lowBalanceWarnings.push({
                 userAddress: plan.userAddress,
                 jobId: plan.jobId,
                 planId: plan.id,
                 fid: plan.fid ?? null,
-                jobCostPrediction,
-                totalTaskCost,
-                percentageUsed: Number(percentageUsed.toFixed(2)),
+                jobCostPrediction: userEthBalance, // Use actual ETH balance
+                totalTaskCost: avgTaskCost, // Use average task cost
+                percentageUsed: Number((100 - percentageRemaining).toFixed(2)),
                 remainingExecutions,
               });
 
               console.log(
-                `[Balance Check] Countdown: User ${plan.userAddress}, Job ${plan.jobId}, ` +
-                  `${remainingExecutions} executions remaining (used ${percentageUsed.toFixed(
-                    2
-                  )}% of predicted cost)`
+                `[Balance Check] ⚠️ LOW BALANCE WARNING: User ${plan.userAddress}, Job ${plan.jobId}, ` +
+                `Only ${remainingExecutions} execution(s) remaining! ` +
+                `(ETH balance: ${userEthBalance}, avg cost: ${avgTaskCost})`
               );
             }
           } catch (err) {
@@ -1157,10 +1173,13 @@ router.get("/users/low-balance-warnings", async (req, res) => {
     res.json({
       success: true,
       data: lowBalanceWarnings,
-      message: `Found ${lowBalanceWarnings.length} plans with low TG balance (>=70% used)`,
+      message: `Found ${lowBalanceWarnings.length} plans with low ETH wallet balance (only 3, 2, or 1 executions remaining)`,
     });
   } catch (error) {
-    console.error("[Balance Check] Error fetching low balance warnings:", error);
+    console.error(
+      "[Balance Check] Error fetching low balance warnings:",
+      error
+    );
     res.status(500).json({
       success: false,
       error: "Internal Server Error",
@@ -1702,6 +1721,11 @@ router.get("/platform-stats", async (req, res) => {
       };
     });
 
+    const total_successful_task = enrichedUsers.reduce(
+      (sum, user) => sum + (user.successCount || 0),
+      0
+    );
+
     // Get unique users count
     const uniqueUserAddresses = new Set(
       enrichedUsers.map((u) => u.userAddress)
@@ -1719,6 +1743,7 @@ router.get("/platform-stats", async (req, res) => {
       total_job_failed: totalJobFailed,
       total_job_processing: totalJobProcessing,
       total_value_swapped: totalValueSwapped,
+      total_successful_task: total_successful_task,
       users: enrichedUsers.map((user) => ({
         Address: user.userAddress,
         fid: user.fid,
@@ -1740,10 +1765,10 @@ router.get("/platform-stats", async (req, res) => {
 
     const response = isHomeRequest
       ? {
-          total_job_live_count: fullResponse.total_job_live_count,
-          total_value_swapped: fullResponse.total_value_swapped,
-          last_update: fullResponse.last_update,
-        }
+        total_job_live_count: fullResponse.total_job_live_count,
+        total_value_swapped: fullResponse.total_value_swapped,
+        last_update: fullResponse.last_update,
+      }
       : fullResponse;
 
     return res.json({

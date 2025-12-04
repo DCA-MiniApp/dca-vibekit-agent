@@ -9,7 +9,8 @@ const LOW_BALANCE_WARNINGS_API = `${API_BASE_URL}/api/dca/users/low-balance-warn
 
 /**
  * Polls the API for low balance warnings and queues notifications.
- * Runs every 5 minutes to check for plans with TG balance >= 70% used.
+ * Runs every 5 minutes to check for plans where user's ETH wallet balance
+ * is only sufficient for 3, 2, or 1 more executions.
  */
 export async function pollLowBalanceWarningsOnce() {
   try {
@@ -90,13 +91,13 @@ export async function pollLowBalanceWarningsOnce() {
       let countdownMessage: string;
       if (remainingExecutions === 3) {
         countdownMessage =
-          "Only 3 more transactions can be executed at your current TG deposit. Please top up TG to avoid interruptions.";
+          "Only 3 more transactions can be executed with your current ETH wallet balance. Please top up ETH to avoid interruptions.";
       } else if (remainingExecutions === 2) {
         countdownMessage =
-          "Only 2 more transactions can be executed at your current TG deposit. Please top up TG to keep your plan running.";
+          "Only 2 more transactions can be executed with your current ETH wallet balance. Please top up ETH to keep your plan running.";
       } else {
         countdownMessage =
-          "Only 1 more transaction can be executed at your current TG deposit. Your plan will likely stop after this unless you top up TG.";
+          "Only 1 more transaction can be executed with your current ETH wallet balance. Your plan will likely stop after this unless you top up ETH.";
       }
 
       // Queue notification job
