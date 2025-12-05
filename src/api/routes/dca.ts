@@ -1786,4 +1786,36 @@ router.get("/platform-stats", async (req, res) => {
   }
 });
 
+// Manual trigger for job status polling
+router.post("/trigger-job-status-poll", async (req, res) => {
+  try {
+    console.log("[API] Manual job status poll triggered");
+
+    // Import the poll function dynamically to avoid circular dependencies
+    const { pollJobStatusOnce } = await import("../../notification-infra/pollJobStatus.js");
+
+    // Trigger the poll asynchronously
+    pollJobStatusOnce()
+      .then(() => {
+        console.log("[API] Job status poll completed successfully");
+      })
+      .catch((err) => {
+        console.error("[API] Job status poll error:", err);
+      });
+
+    return res.json({
+      success: true,
+      message: "Job status poll triggered successfully",
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Error triggering job status poll:", error);
+    return res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to trigger job status poll",
+    });
+  }
+});
+
 export { router as dcaRoutes };

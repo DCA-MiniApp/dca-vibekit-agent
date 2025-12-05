@@ -12,6 +12,9 @@ import { statusRoutes } from './routes/status.js';
 // import '../notification-infra/pollLowBalanceWarnings.js';
 // This will auto-start the worker (processes notification jobs from queue)
 // import '../notification-infra/notificationWorker.js';
+// This will auto-start the job status poller (checks job status every 5 minutes and sends to Slack)
+// import '../notification-infra/pollJobStatus.js';
+
 
 const app: express.Application = express();
 
@@ -71,7 +74,7 @@ app.get('/', (req, res) => {
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('API Error:', err);
-  
+
   if (err.name === 'ValidationError') {
     return res.status(400).json({
       error: 'Validation Error',
