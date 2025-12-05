@@ -4,7 +4,6 @@ import {
   createDCAPlanTool,
   getUserDCAPlans,
   updateDCAPlanStatus,
-  getDCAExecutionHistory,
   getPlatformStats,
 } from '../tools/dcaPlans.js';
 import { prepareDCASwapTool } from '../tools/prepareDCASwap.js';
@@ -14,7 +13,6 @@ console.log('🔥🔥🔥 [SKILL] Available tools:', [
   createDCAPlanTool.name,
   getUserDCAPlans.name,
   updateDCAPlanStatus.name,
-  getDCAExecutionHistory.name,
   getPlatformStats.name,
   prepareDCASwapTool.name
 ]);
@@ -43,7 +41,7 @@ export const dcaSwappingSkill = defineSkill({
     'Cancel my DAI to BTC investment plan',
     'Resume my weekly ETH purchases',
     'What are the platform statistics?',
-    'Check my DCA execution history',
+    'Check my DCA execution history via TriggerX',
     'Add a new investment plan to my portfolio',
   ],
   inputSchema: DCASwappingInputSchema,
@@ -52,7 +50,6 @@ export const dcaSwappingSkill = defineSkill({
     createDCAPlanTool, // Database record creation only
     getUserDCAPlans,
     updateDCAPlanStatus,
-    getDCAExecutionHistory,
     getPlatformStats,
   ],
 });

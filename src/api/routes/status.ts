@@ -8,11 +8,13 @@ const router: Router = Router();
 router.get('/stats', async (req, res) => {
   try {
     // Get current counts
-    const [totalPlans, activePlans, totalExecutions] = await Promise.all([
+    const [totalPlans, activePlans] = await Promise.all([
       prisma.dcaPlan.count(),
       prisma.dcaPlan.count({ where: { status: 'ACTIVE' } }),
-      prisma.executionHistory.count(),
     ]);
+    
+    // totalExecutions now comes from TriggerX API data
+    const totalExecutions = 0; // Placeholder - actual count comes from TriggerX
     
     // Get unique users count
     const uniqueUsers = await prisma.dcaPlan.groupBy({
@@ -20,25 +22,9 @@ router.get('/stats', async (req, res) => {
       _count: true,
     });
     
-    // Get recent executions (last 24 hours and 7 days)
-    const now = new Date();
-    const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    
-    const [last24hExecutions, last7dExecutions] = await Promise.all([
-      prisma.executionHistory.count({
-        where: {
-          executedAt: { gte: last24h },
-          status: 'SUCCESS',
-        },
-      }),
-      prisma.executionHistory.count({
-        where: {
-          executedAt: { gte: last7d },
-          status: 'SUCCESS',
-        },
-      }),
-    ]);
+    // Recent executions now come from TriggerX API data
+    const last24hExecutions = 0; // Placeholder - actual count comes from TriggerX
+    const last7dExecutions = 0; // Placeholder - actual count comes from TriggerX
     
     const stats: PlatformStatsResponse = {
       totalPlans,

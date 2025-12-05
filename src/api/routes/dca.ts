@@ -144,8 +144,6 @@ function calculateNextExecutionFromTasks(
   plan: any,
   jobData: any
 ): string | null {
-  const defaultNextExecution = plan.nextExecution?.toISOString() ?? null;
-
   if (
     !jobData ||
     jobData.success !== true ||
@@ -154,7 +152,7 @@ function calculateNextExecutionFromTasks(
     !Array.isArray(jobData.data.jobData.task_ids) ||
     jobData.data.jobData.task_ids.length <= 1
   ) {
-    return defaultNextExecution;
+    return null;
   }
 
   const taskIds: number[] = jobData.data.jobData.task_ids;
@@ -165,7 +163,7 @@ function calculateNextExecutionFromTasks(
     !Array.isArray(jobData.data.taskData) ||
     jobData.data.taskData.length === 0
   ) {
-    return defaultNextExecution;
+    return null;
   }
 
   const previousTask = jobData.data.taskData.find(
@@ -177,17 +175,17 @@ function calculateNextExecutionFromTasks(
     !prevExecutionTimestamp ||
     prevExecutionTimestamp === "0001-01-01T00:00:00Z"
   ) {
-    return defaultNextExecution;
+    return null;
   }
 
   const prevDate = new Date(prevExecutionTimestamp);
   if (Number.isNaN(prevDate.getTime())) {
-    return defaultNextExecution;
+    return null;
   }
 
-  const intervalMs = (plan.intervalMinutes || 0) * 60 * 1000;
+  const intervalMs = (plan.intervalSeconds || 0) * 1000;
   if (!intervalMs) {
-    return defaultNextExecution;
+    return null;
   }
 
   return new Date(prevDate.getTime() + intervalMs).toISOString();
@@ -196,23 +194,28 @@ function calculateNextExecutionFromTasks(
 // Create DCA Plan
 router.post("/create", async (req, res) => {
   try {
+    console.log('🔍 [API /create] Raw request body:', JSON.stringify(req.body, null, 2));
+    console.log('🔍 [API /create] req.body.userAddress:', req.body.userAddress);
+    console.log('🔍 [API /create] Address length:', req.body.userAddress?.length);
+    console.log('🔍 [API /create] Address regex test:', /^0x[a-fA-F0-9]{40}$/.test(req.body.userAddress || ''));
+
     // Validate request body
     const validatedData = CreateDCAPlanSchema.parse(req.body);
 
-    // Calculate total executions based on duration and interval
-    const totalMinutes = validatedData.durationWeeks * 7 * 24 * 60;
-    const totalExecutions = Math.floor(
-      totalMinutes / validatedData.intervalMinutes
-    );
+    console.log('🔍 [API /create] After validation - userAddress:', validatedData.userAddress);
+    console.log('🔍 [API /create] After validation - Address length:', validatedData.userAddress?.length);
+    console.log('🔍 [API /create] After validation - Address regex test:', /^0x[a-fA-F0-9]{40}$/.test(validatedData.userAddress || ''));
 
-    // Calculate next execution time (start immediately or after interval)
-    const nextExecution = new Date(
-      Date.now() + validatedData.intervalMinutes * 60 * 1000
+    // Calculate total executions based on duration and interval
+    const totalExecutions = Math.floor(
+      validatedData.durationSeconds / validatedData.intervalSeconds
     );
 
     // Convert amount and slippage to Decimal
     const amount = validatedData.amount;
     const slippage = parseFloat(validatedData.slippage || "2"); // Convert percentage to decimal
+
+    console.log('🔍 [API /create] BEFORE Prisma create - userAddress:', validatedData.userAddress);
 
     // Create DCA plan in database
     const dcaPlan = await prisma.dcaPlan.create({
@@ -221,10 +224,8 @@ router.post("/create", async (req, res) => {
         fromToken: validatedData.fromToken.toUpperCase(),
         toToken: validatedData.toToken.toUpperCase(),
         amount: amount,
-        intervalMinutes: validatedData.intervalMinutes,
-        // Store as Decimal to support fractional weeks
-        durationWeeks: validatedData.durationWeeks,
-        nextExecution,
+        intervalSeconds: validatedData.intervalSeconds,
+        durationSeconds: validatedData.durationSeconds,
         totalExecutions,
         slippage: slippage,
         status: "ACTIVE",
@@ -234,6 +235,11 @@ router.post("/create", async (req, res) => {
       },
     });
 
+    console.log('🔍 [API /create] AFTER Prisma create - dcaPlan.userAddress:', dcaPlan.userAddress);
+    console.log('🔍 [API /create] AFTER Prisma create - Address length:', dcaPlan.userAddress?.length);
+    console.log('🔍 [API /create] AFTER Prisma create - Address regex test:', /^0x[a-fA-F0-9]{40}$/.test(dcaPlan.userAddress || ''));
+    console.log('🔍 [API /create] Full dcaPlan object:', JSON.stringify(dcaPlan, null, 2));
+
     const response: ApiResponse<DCAPlanResponse> = {
       success: true,
       data: {
@@ -242,12 +248,10 @@ router.post("/create", async (req, res) => {
         fromToken: dcaPlan.fromToken,
         toToken: dcaPlan.toToken,
         amount: dcaPlan.amount.toString(),
-        intervalMinutes: dcaPlan.intervalMinutes,
-        durationWeeks: parseFloat(dcaPlan.durationWeeks.toString()),
-        status: dcaPlan.status as any,
-        nextExecution: dcaPlan.nextExecution?.toISOString() || null,
-        executionCount: dcaPlan.executionCount,
+        intervalSeconds: dcaPlan.intervalSeconds,
+        durationSeconds: dcaPlan.durationSeconds,
         totalExecutions: dcaPlan.totalExecutions,
+        status: dcaPlan.status as any,
         slippage: dcaPlan.slippage.toString(),
         jobId: dcaPlan.jobId,
         ipfsLink: dcaPlan.ipfsLink,
@@ -257,6 +261,7 @@ router.post("/create", async (req, res) => {
       message: "DCA plan created successfully",
     };
 
+    console.log('🔍 [API /create] Response data userAddress:', response.data?.userAddress);
     console.log(
       `✅ Created DCA plan: ${validatedData.fromToken} → ${validatedData.toToken} for ${validatedData.userAddress}`
     );
@@ -308,12 +313,6 @@ router.get("/plans/:userAddress", async (req, res) => {
       orderBy: {
         createdAt: "desc",
       },
-      include: {
-        executions: {
-          orderBy: { executedAt: "desc" },
-          take: 1, // Get latest execution for each plan
-        },
-      },
     });
 
     const triggerxClient = new TriggerXClient(
@@ -348,12 +347,10 @@ router.get("/plans/:userAddress", async (req, res) => {
           fromToken: plan.fromToken,
           toToken: plan.toToken,
           amount: plan.amount.toString(),
-          intervalMinutes: plan.intervalMinutes,
-          durationWeeks: parseFloat(plan.durationWeeks.toString()),
-          status: plan.status as any,
-          nextExecution: computedNextExecution,
-          executionCount: plan.executionCount,
+          intervalSeconds: plan.intervalSeconds,
+          durationSeconds: plan.durationSeconds,
           totalExecutions: plan.totalExecutions,
+          status: plan.status as any,
           slippage: plan.slippage.toString(),
           jobId: plan.jobId,
           ipfsLink: plan.ipfsLink,
@@ -412,6 +409,9 @@ router.get("/plans/:userAddress", async (req, res) => {
 router.put("/plans/:planId/details", async (req, res) => {
   try {
     const { planId } = req.params;
+    console.log('🔍 [API /plans/:planId/details] Updating plan:', planId);
+    console.log('🔍 [API /plans/:planId/details] Request body:', JSON.stringify(req.body, null, 2));
+    
     const validatedData = UpdateDCAPlanDetailsSchema.parse(req.body);
 
     // Check if plan exists
@@ -427,6 +427,10 @@ router.put("/plans/:planId/details", async (req, res) => {
       };
       return res.status(404).json(response);
     }
+
+    console.log('🔍 [API /plans/:planId/details] Existing plan userAddress:', existingPlan.userAddress);
+    console.log('🔍 [API /plans/:planId/details] Existing plan address length:', existingPlan.userAddress?.length);
+    console.log('🔍 [API /plans/:planId/details] Existing plan address regex test:', /^0x[a-fA-F0-9]{40}$/.test(existingPlan.userAddress || ''));
 
     // Prepare update data
     const updateData: any = {
@@ -452,6 +456,10 @@ router.put("/plans/:planId/details", async (req, res) => {
       data: updateData,
     });
 
+    console.log('🔍 [API /plans/:planId/details] AFTER update - updatedPlan.userAddress:', updatedPlan.userAddress);
+    console.log('🔍 [API /plans/:planId/details] AFTER update - Address length:', updatedPlan.userAddress?.length);
+    console.log('🔍 [API /plans/:planId/details] AFTER update - Address regex test:', /^0x[a-fA-F0-9]{40}$/.test(updatedPlan.userAddress || ''));
+
     const response: ApiResponse<DCAPlanResponse> = {
       success: true,
       data: {
@@ -460,12 +468,10 @@ router.put("/plans/:planId/details", async (req, res) => {
         fromToken: updatedPlan.fromToken,
         toToken: updatedPlan.toToken,
         amount: updatedPlan.amount.toString(),
-        intervalMinutes: updatedPlan.intervalMinutes,
-        durationWeeks: parseFloat(updatedPlan.durationWeeks.toString()),
-        status: updatedPlan.status as any,
-        nextExecution: updatedPlan.nextExecution?.toISOString() || null,
-        executionCount: updatedPlan.executionCount,
+        intervalSeconds: updatedPlan.intervalSeconds,
+        durationSeconds: updatedPlan.durationSeconds,
         totalExecutions: updatedPlan.totalExecutions,
+        status: updatedPlan.status as any,
         slippage: updatedPlan.slippage.toString(),
         jobId: updatedPlan.jobId,
         ipfsLink: updatedPlan.ipfsLink,
@@ -539,12 +545,10 @@ router.put("/plans/:planId", async (req, res) => {
         fromToken: updatedPlan.fromToken,
         toToken: updatedPlan.toToken,
         amount: updatedPlan.amount.toString(),
-        intervalMinutes: updatedPlan.intervalMinutes,
-        durationWeeks: parseFloat(updatedPlan.durationWeeks.toString()),
-        status: updatedPlan.status as any,
-        nextExecution: updatedPlan.nextExecution?.toISOString() || null,
-        executionCount: updatedPlan.executionCount,
+        intervalSeconds: updatedPlan.intervalSeconds,
+        durationSeconds: updatedPlan.durationSeconds,
         totalExecutions: updatedPlan.totalExecutions,
+        status: updatedPlan.status as any,
         slippage: updatedPlan.slippage.toString(),
         jobId: updatedPlan.jobId,
         ipfsLink: updatedPlan.ipfsLink,
@@ -707,65 +711,7 @@ router.get("/user/:userAddress/history", async (req, res) => {
 // - Slippage is included for each item.
 // - Conversion rate is toAmount / fromAmount, if available and fromAmount !== 0.
 
-// Get execution history for a plan
-router.get("/history/:planId", async (req, res) => {
-  try {
-    const { planId } = req.params;
-    const { limit = "50", offset = "0" } = req.query;
-
-    // Validate plan exists
-    const plan = await prisma.dcaPlan.findUnique({
-      where: { id: planId },
-    });
-
-    if (!plan) {
-      const response: ApiResponse = {
-        success: false,
-        error: "Plan Not Found",
-        message: "DCA plan not found",
-      };
-      return res.status(404).json(response);
-    }
-
-    // Get execution history
-    const executions = await prisma.executionHistory.findMany({
-      where: { planId },
-      orderBy: { executedAt: "desc" },
-      take: parseInt(limit as string),
-      skip: parseInt(offset as string),
-    });
-
-    const formattedExecutions = executions.map((execution: any) => ({
-      id: execution.id,
-      planId: execution.planId,
-      executedAt: execution.executedAt.toISOString(),
-      fromAmount: execution.fromAmount.toString(),
-      toAmount: execution.toAmount.toString(),
-      exchangeRate: execution.exchangeRate.toString(),
-      gasFee: execution.gasFee?.toString() || null,
-      txHash: execution.txHash,
-      status: execution.status,
-      errorMessage: execution.errorMessage,
-    }));
-
-    const response: ApiResponse = {
-      success: true,
-      data: formattedExecutions,
-      message: `Found ${formattedExecutions.length} executions`,
-    };
-
-    res.json(response);
-  } catch (error) {
-    console.error("Error fetching execution history:", error);
-
-    const response: ApiResponse = {
-      success: false,
-      error: "Internal Server Error",
-      message: "Failed to fetch execution history",
-    };
-    res.status(500).json(response);
-  }
-});
+// Execution history endpoint removed - execution data now comes from TriggerX API via /user/:userAddress/history
 
 // Platform statistics (duplicate of /api/status/stats for convenience)
 router.get("/stats", async (req, res) => {

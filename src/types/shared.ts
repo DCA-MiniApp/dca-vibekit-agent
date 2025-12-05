@@ -20,18 +20,16 @@ export const CreateDCAPlanSchema = z.object({
     .string()
     .regex(/^\d+(\.\d+)?$/, "Amount must be a valid number")
     .describe("Investment amount per execution"),
-  intervalMinutes: z
+  intervalSeconds: z
     .number()
-    .min(2)
-    .max(43200) // Max 30 days
-    .describe("Execution interval in minutes"),
-  durationWeeks: z
-    .number()    // Minimum 5 minutes expressed in weeks: 5 / (7 * 24 * 60) ≈ 0.000496
-    .min(0.0005) // Minimum ~0.0005 weeks (about 5 minutes)
-    .max(260) // Max 5 years
-    .describe(
-      "Total investment duration in weeks (supports fractional values like 0.5, 1.25, etc.)"
-    ),
+    .min(120) // Minimum 2 minutes (120 seconds)
+    .max(2592000) // Max 30 days (30 * 24 * 60 * 60)
+    .describe("Execution interval in seconds"),
+  durationSeconds: z
+    .number()
+    .min(300) // Minimum 5 minutes (300 seconds)
+    .max(157680000) // Max 5 years (5 * 365 * 24 * 60 * 60)
+    .describe("Total investment duration in seconds"),
   slippage: z
     .string()
     .regex(/^\d+(\.\d+)?$/, "Slippage must be a valid number")
@@ -86,27 +84,7 @@ export type UpdateDCAPlanStatusRequest = z.infer<
   typeof UpdateDCAPlanStatusSchema
 >;
 
-// Get DCA Execution History Schema
-export const GetDCAExecutionHistorySchema = z.object({
-  planId: z.string().min(1).describe("DCA plan ID to get history for"),
-  limit: z
-    .number()
-    .min(1)
-    .max(100)
-    .optional()
-    .default(50)
-    .describe("Maximum number of executions to return (default: 50)"),
-  offset: z
-    .number()
-    .min(0)
-    .optional()
-    .default(0)
-    .describe("Number of executions to skip for pagination (default: 0)"),
-});
-
-export type GetDCAExecutionHistoryRequest = z.infer<
-  typeof GetDCAExecutionHistorySchema
->;
+// GetDCAExecutionHistorySchema removed - execution history now comes from TriggerX API
 
 // Get Platform Stats Schema (empty schema for consistency)
 export const GetPlatformStatsSchema = z.object({});
@@ -120,12 +98,10 @@ export interface DCAPlanResponse {
   fromToken: string;
   toToken: string;
   amount: string;
-  intervalMinutes: number;
-  durationWeeks: number;
-  status: "ACTIVE" | "PAUSED" | "COMPLETED" | "CANCELLED";
-  nextExecution: string | null;
-  executionCount: number;
+  intervalSeconds: number;
+  durationSeconds: number;
   totalExecutions: number;
+  status: "ACTIVE" | "PAUSED" | "COMPLETED" | "CANCELLED";
   slippage: string;
   jobId: string | null;
   ipfsLink: string | null;
@@ -133,18 +109,7 @@ export interface DCAPlanResponse {
   updatedAt: string;
 }
 
-export interface ExecutionHistoryResponse {
-  id: string;
-  planId: string;
-  executedAt: string;
-  fromAmount: string;
-  toAmount: string;
-  exchangeRate: string;
-  gasFee: string | null;
-  txHash: string | null;
-  status: "SUCCESS" | "FAILED" | "PENDING";
-  errorMessage: string | null;
-}
+// ExecutionHistoryResponse removed - execution history now comes from TriggerX API
 
 export interface PlatformStatsResponse {
   totalPlans: number;
