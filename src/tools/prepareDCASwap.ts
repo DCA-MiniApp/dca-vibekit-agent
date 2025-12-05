@@ -328,21 +328,8 @@ const basePrepareDCASwapTool: VibkitToolDefinition<typeof PrepareDCASwapParams, 
           errorAmount = args.amount || '0';
         }
         
-        if (context?.custom?.prisma && errorPlanId && !errorPlanId.startsWith('temp-')) {
-          await context.custom.prisma.executionHistory.create({
-            data: {
-              planId: errorPlanId,
-              fromAmount: errorAmount,
-              toAmount: '0',
-              exchangeRate: '0',
-              gasFee: null,
-              txHash: null,
-              status: 'FAILED',
-              errorMessage: error instanceof Error ? error.message : String(error),
-            },
-          });
-          console.log('[DCA Swap] 📝 Recorded FAILED preparation');
-        }
+        // Execution history is now handled by TriggerX API
+        console.log('[DCA Swap] ❌ Failed preparation - error will be tracked via TriggerX');
       } catch (dbError) {
         console.error('[DCA Swap] ❌ Failed to record preparation error in DB:', dbError);
       }

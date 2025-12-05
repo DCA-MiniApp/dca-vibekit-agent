@@ -83,7 +83,7 @@ async function startAgent() {
         console.log(`[DCA Agent] Connecting to MCP server at ${emberEndpoint}`);
         emberMcpClient = new Client(
           { name: 'DCAAgent', version: '1.0.0' },
-          { capabilities: { tools: {}, resources: {}, prompts: {} } }
+          { capabilities: {} }
         );
 
         const transport = new StreamableHTTPClientTransport(new URL(emberEndpoint));
