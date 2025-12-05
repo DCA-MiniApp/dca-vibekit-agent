@@ -49,7 +49,8 @@ export async function getDatabaseHealth() {
     const activePlans = await prisma.dcaPlan.count({
       where: { status: 'ACTIVE' }
     });
-    const totalExecutions = await prisma.executionHistory.count();
+    // totalExecutions now calculated from TriggerX API data
+    const totalExecutions = 0; // Placeholder - actual count comes from TriggerX
     
     return {
       status: 'healthy',

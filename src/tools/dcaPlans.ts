@@ -5,12 +5,10 @@ import {
   CreateDCAPlanSchema,
   GetUserDCAPlansSchema,
   UpdateDCAPlanStatusSchema,
-  GetDCAExecutionHistorySchema,
   GetPlatformStatsSchema,
   type CreateDCAPlanRequest,
   type GetUserDCAPlansRequest,
   type UpdateDCAPlanStatusRequest,
-  type GetDCAExecutionHistoryRequest,
   type GetPlatformStatsRequest,
 } from '../types/shared.js';
 
@@ -22,10 +20,13 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any, DCAContext, any> 
   description: 'Create a new DCA plan database record only (without transaction preparation). Use this for basic plan creation when you do NOT need transaction data - e.g., "Create a DCA plan record", "Set up a new investment plan", "Add a plan to database"',
   parameters: CreateDCAPlanSchema,
   execute: async (params: CreateDCAPlanRequest, context) => {
-    const { userAddress, fromToken, toToken, amount, intervalMinutes, durationWeeks, slippage,fid } = params;
+    const { userAddress, fromToken, toToken, amount, intervalSeconds, durationSeconds, slippage,fid } = params;
 
     console.log('🔥🔥🔥 [TOOL] createDCAPlan CALLED!');
-    console.log('🔥🔥🔥 [TOOL] Args:', { userAddress, fromToken, toToken, amount, intervalMinutes, durationWeeks, slippage,fid });
+    console.log('🔥🔥🔥 [TOOL] Args:', { userAddress, fromToken, toToken, amount, intervalSeconds, durationSeconds, slippage,fid });
+    console.log('🔍 [TOOL createDCAPlan] userAddress from params:', userAddress);
+    console.log('🔍 [TOOL createDCAPlan] Address length:', userAddress?.length);
+    console.log('🔍 [TOOL createDCAPlan] Address regex test:', /^0x[a-fA-F0-9]{40}$/.test(userAddress || ''));
 
     try {
       const API_PORT = parseInt(process.env.API_PORT || '3002', 10);
@@ -39,8 +40,8 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any, DCAContext, any> 
           fromToken,
           toToken,
           amount,
-          intervalMinutes,
-          durationWeeks,
+          intervalSeconds,
+          durationSeconds,
           slippage: slippage || '2',
           fid,
         }),
@@ -59,7 +60,7 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any, DCAContext, any> 
       console.log('🔥 [TOOL] Plan created successfully. Returning plan details for TriggerX integration...');
 
       // Calculate total executions for reference
-      const totalExecutions = Math.floor((durationWeeks * 7 * 24 * 60) / intervalMinutes);
+      const totalExecutions = Math.floor(durationSeconds / intervalSeconds);
 
       return createSuccessTask(
         'createDCAPlan',
@@ -153,45 +154,7 @@ export const updateDCAPlanStatus: VibkitToolDefinition<any, any> = {
   },
 };
 
-/**
- * Tool to get execution history for a DCA plan
- */
-export const getDCAExecutionHistory: VibkitToolDefinition<any, any> = {
-  name: 'getDCAExecutionHistory',
-  description: 'Get execution history for a specific DCA plan',
-  parameters: GetDCAExecutionHistorySchema,
-  execute: async (params: GetDCAExecutionHistoryRequest) => {
-    const { planId, limit = 50, offset = 0 } = params;
-    try {
-      const API_PORT = parseInt(process.env.API_PORT || '3002', 10);
-      const url = new URL(`http://localhost:${API_PORT}/api/dca/history/${planId}`);
-      url.searchParams.set('limit', limit.toString());
-      url.searchParams.set('offset', offset.toString());
-
-      const response = await fetch(url.toString());
-      const result = await response.json() as any;
-      
-      if (!response.ok) {
-        return createErrorTask(
-          'getDCAExecutionHistory',
-          new Error(result.message || 'Failed to fetch execution history')
-        );
-      }
-
-      const executions = result.data || [];
-      return createSuccessTask(
-        'getDCAExecutionHistory',
-        [result],
-        `Found ${executions.length} executions for plan ${planId}`
-      );
-    } catch (error) {
-      return createErrorTask(
-        'getDCAExecutionHistory',
-        error instanceof Error ? error : new Error(`Failed to connect to DCA API: ${String(error)}`)
-      );
-    }
-  },
-};
+// getDCAExecutionHistory tool removed - execution history now available via TriggerX API integration
 
 /**
  * Tool to get platform statistics

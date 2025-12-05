@@ -9,7 +9,6 @@ export {
   createDCAPlanTool,
   getUserDCAPlans,
   updateDCAPlanStatus,
-  getDCAExecutionHistory,
   getPlatformStats,
 } from './dcaPlans.js';
 

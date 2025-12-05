@@ -8,26 +8,22 @@ datasource db {
 }
 
 model DcaPlan {
-  id              String             @id @default(cuid())
-  userAddress     String             @map("user_address") @db.VarChar(42)
-  fromToken       String             @map("from_token") @db.VarChar(10)
-  toToken         String             @map("to_token") @db.VarChar(10)
-  amount          Decimal            @db.Decimal(36, 18)
-  intervalMinutes Int                @map("interval_minutes")
-  durationWeeks   Decimal            @map("duration_weeks") @db.Decimal(16, 8)
-  status          DcaStatus          @default(ACTIVE)
-  nextExecution   DateTime?          @map("next_execution") @db.Timestamptz(6)
-  executionCount  Int                @default(0) @map("execution_count")
-  totalExecutions Int                @map("total_executions")
-  slippage        Decimal            @default(2.0) @db.Decimal(5, 2)
-  jobId           String?            @map("job_id") @db.VarChar(255)
-  ipfsLink        String?            @map("ipfs_link")
-  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
-  fid             Int?               @map("fid")
-  executions      ExecutionHistory[]
+  id              String    @id @default(cuid())
+  userAddress     String    @map("user_address") @db.VarChar(42)
+  fromToken       String    @map("from_token") @db.VarChar(10)
+  toToken         String    @map("to_token") @db.VarChar(10)
+  amount          Decimal   @db.Decimal(36, 18)
+  intervalSeconds Int       @map("interval_seconds")
+  durationSeconds Int       @map("duration_seconds")
+  totalExecutions Int       @map("total_executions")
+  status          DcaStatus @default(ACTIVE)
+  slippage        Decimal   @default(2.0) @db.Decimal(5, 2)
+  jobId           String?   @map("job_id") @db.VarChar(255)
+  ipfsLink        String?   @map("ipfs_link")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  fid             Int?      @map("fid")
 
-  @@index([nextExecution, status], map: "idx_due_plans")
   @@index([userAddress], map: "idx_user_plans")
   @@index([status], map: "idx_plan_status")
   @@index([createdAt], map: "idx_plan_created")
@@ -35,25 +31,6 @@ model DcaPlan {
   @@map("dca_plans")
 }
 
-model ExecutionHistory {
-  id           String          @id @default(cuid())
-  planId       String          @map("plan_id")
-  executedAt   DateTime        @default(now()) @map("executed_at") @db.Timestamptz(6)
-  fromAmount   Decimal         @map("from_amount") @db.Decimal(36, 18)
-  toAmount     Decimal         @map("to_amount") @db.Decimal(36, 18)
-  exchangeRate Decimal         @map("exchange_rate") @db.Decimal(36, 18)
-  gasFee       Decimal?        @map("gas_fee") @db.Decimal(36, 18)
-  txHash       String?         @map("tx_hash") @db.VarChar(66)
-  status       ExecutionStatus
-  errorMessage String?         @map("error_message")
-  plan         DcaPlan         @relation(fields: [planId], references: [id], onDelete: Cascade)
-
-  @@index([planId], map: "idx_execution_plan")
-  @@index([executedAt], map: "idx_execution_time")
-  @@index([status], map: "idx_execution_status")
-  @@index([txHash], map: "idx_execution_tx")
-  @@map("execution_history")
-}
 
 enum DcaStatus {
   ACTIVE
@@ -62,11 +39,6 @@ enum DcaStatus {
   CANCELLED
 }
 
-enum ExecutionStatus {
-  SUCCESS
-  FAILED
-  PENDING
-}
 
 model User {
   fid               String   @id
