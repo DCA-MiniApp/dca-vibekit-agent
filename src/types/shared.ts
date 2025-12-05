@@ -27,7 +27,7 @@ export const CreateDCAPlanSchema = z.object({
     .describe("Execution interval in seconds"),
   durationSeconds: z
     .number()
-    .min(3600) // Minimum 1 hour (3600 seconds)
+    .min(300) // Minimum 5 minutes (300 seconds)
     .max(157680000) // Max 5 years (5 * 365 * 24 * 60 * 60)
     .describe("Total investment duration in seconds"),
   slippage: z

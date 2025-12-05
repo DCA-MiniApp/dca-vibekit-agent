@@ -8,8 +8,7 @@ import {
   type PlatformStatsResponse,
   type ApiResponse,
 } from "../../types/shared.js";
-import { TriggerXClient } from "sdk-triggerx";
-import { getJobDataById } from "sdk-triggerx";
+import { getJobDataById, TriggerXClient, checkEthBalance } from "sdk-triggerx";
 import { getTokenPrice } from "../../utils/tokenPrice.js";
 const router: Router = Router();
 import { ethers } from "ethers";
@@ -626,62 +625,59 @@ router.get("/user/:userAddress/history", async (req, res) => {
             // Only process if there is job data and taskData is an array
             if (jobDataResp && Array.isArray(jobDataResp.data?.taskData)) {
               for (const task of jobDataResp.data.taskData) {
-                // Only include tasks whose status is "completed" or "failed"
-                const taskStatus = String(task.task_status).toLowerCase();
-                if (taskStatus === "completed" || taskStatus === "failed") {
-                  const taskRecord: any = task;
-                  let gasFee = null;
-                  if (task.execution_tx_hash) {
-                    try {
-                      gasFee = await getTxFee(task.execution_tx_hash);
-                    } catch (feeErr) {
-                      console.warn(
-                        `Failed to fetch gas fee for tx ${task.execution_tx_hash}:`,
-                        feeErr
-                      );
-                    }
+                // Include all tasks regardless of status
+                const taskRecord: any = task;
+                let gasFee = null;
+                if (task.execution_tx_hash) {
+                  try {
+                    gasFee = await getTxFee(task.execution_tx_hash);
+                  } catch (feeErr) {
+                    console.warn(
+                      `Failed to fetch gas fee for tx ${task.execution_tx_hash}:`,
+                      feeErr
+                    );
                   }
-
-                  let exchangeRate: string | null = null;
-                  let inputAmount: string | null = null;
-                  let outputAmount: string | null = null;
-                  if (task.execution_tx_hash) {
-                    try {
-                      const conv = await getConversionRate(
-                        plan.userAddress,
-                        task.execution_tx_hash
-                      );
-                      exchangeRate = conv.conversionRate;
-                      inputAmount = conv.inputAmount;
-                      outputAmount = conv.outputAmount;
-                    } catch (convErr) {
-                      console.warn(
-                        `Failed to fetch exchange rate for tx ${task.execution_tx_hash}:`,
-                        convErr
-                      );
-                    }
-                  }
-
-                  history.push({
-                    fromToken: plan.fromToken,
-                    toToken: plan.toToken,
-                    amount: plan.amount.toString(),
-                    slippage: plan.slippage ? plan.slippage.toString() : null,
-                    jobId: plan.jobId,
-                    taskId: task.task_id,
-                    executionTimestamp: task.execution_timestamp,
-                    executionTxHash: task.execution_tx_hash,
-                    taskStatus: task.task_status,
-                    txUrl: task.tx_url,
-                    fromAmount: taskRecord?.fromAmount ?? null,
-                    toAmount: taskRecord?.toAmount ?? null,
-                    tgCostETH: taskRecord?.task_opx_cost ?? null,
-                    gasFee: gasFee?.totalFeeETH,
-                    exchangeRate: exchangeRate ?? null,
-                    inputAmount: inputAmount ?? null,
-                    outputAmount: outputAmount ?? null,
-                  });
                 }
+
+                let exchangeRate: string | null = null;
+                let inputAmount: string | null = null;
+                let outputAmount: string | null = null;
+                if (task.execution_tx_hash) {
+                  try {
+                    const conv = await getConversionRate(
+                      plan.userAddress,
+                      task.execution_tx_hash
+                    );
+                    exchangeRate = conv.conversionRate;
+                    inputAmount = conv.inputAmount;
+                    outputAmount = conv.outputAmount;
+                  } catch (convErr) {
+                    console.warn(
+                      `Failed to fetch exchange rate for tx ${task.execution_tx_hash}:`,
+                      convErr
+                    );
+                  }
+                }
+
+                history.push({
+                  fromToken: plan.fromToken,
+                  toToken: plan.toToken,
+                  amount: plan.amount.toString(),
+                  slippage: plan.slippage ? plan.slippage.toString() : null,
+                  jobId: plan.jobId,
+                  taskId: task.task_id,
+                  executionTimestamp: task.execution_timestamp,
+                  executionTxHash: task.execution_tx_hash,
+                  taskStatus: task.task_status,
+                  txUrl: task.tx_url,
+                  fromAmount: taskRecord?.fromAmount ?? null,
+                  toAmount: taskRecord?.toAmount ?? null,
+                  tgCostETH: taskRecord?.task_opx_cost ?? null,
+                  gasFee: gasFee?.totalFeeETH,
+                  exchangeRate: exchangeRate ?? null,
+                  inputAmount: inputAmount ?? null,
+                  outputAmount: outputAmount ?? null,
+                });
               }
             }
           } catch (err) {
@@ -929,6 +925,211 @@ router.get("/users/failed-tasks", async (req, res) => {
       success: false,
       error: "Internal Server Error",
       message: "Failed to fetch failed tasks",
+    });
+  }
+});
+
+// Get users with low ETH wallet balance countdown warnings (3, 2, 1 executions remaining)
+router.get("/users/low-balance-warnings", async (req, res) => {
+  try {
+    // 1. Get all plans with jobId
+    const plans = await prisma.dcaPlan.findMany({
+      where: {
+        jobId: {
+          not: null,
+        },
+      },
+      select: {
+        userAddress: true,
+        jobId: true,
+        fid: true,
+        id: true,
+      },
+    });
+
+    console.log(
+      `[Balance Check] Checking ${plans.length} active plans for low ETH wallet balance`
+    );
+
+    const triggerxClient = new TriggerXClient(
+      process.env.TRIGGERX_API_KEY || ""
+    );
+
+    // 2. For each plan, get jobData and compute remaining executions
+    const lowBalanceWarnings: {
+      userAddress: string;
+      jobId: string;
+      planId: string;
+      fid: number | null;
+      jobCostPrediction: number;
+      totalTaskCost: number;
+      percentageUsed: number;
+      remainingExecutions: number;
+    }[] = [];
+
+    // Process in batches to avoid overwhelming the API
+    const batchSize = 10;
+    for (let i = 0; i < plans.length; i += batchSize) {
+      const batch = plans.slice(i, i + batchSize);
+
+      await Promise.all(
+        batch.map(async (plan) => {
+          if (!plan.jobId) return;
+
+          try {
+            const jobDataResp = await getJobDataById(
+              triggerxClient,
+              plan.jobId,
+              plan.userAddress
+            );
+
+            console.log("Jobdatatresp:", jobDataResp);
+
+            if (!jobDataResp || !jobDataResp.success) {
+              console.warn(
+                `[Balance Check] Failed to fetch job data for jobId ${plan.jobId}`
+              );
+              return;
+            }
+
+
+            const jobData = jobDataResp.data?.jobData;
+            const taskData = jobDataResp.data?.taskData || [];
+
+            if (!jobData) {
+              return;
+            }
+
+            // Skip if job is already completed, failed, pending, or deleted
+            const status = jobData.status?.toLowerCase();
+            if (status === "completed" || status === "failed" || status === "pending" || status === "deleted") {
+              console.log(`[Balance Check] Skipping job ${plan.jobId} with status: ${status}`);
+              return;
+            }
+
+            // Get user's actual ETH balance on Arbitrum (chainId: 42161)
+            let userEthBalance: number;
+            try {
+              const balanceResponse = await checkEthBalance(plan.userAddress, 42161);
+
+              // checkEthBalance returns { success, data: { ethBalanceWei, ethBalance }, error, errorCode }
+              if (!balanceResponse.success || !balanceResponse.data) {
+                console.log(`[Balance Check] Failed to fetch balance for ${plan.userAddress}: ${balanceResponse.error || 'Unknown error'}`);
+                return;
+              }
+
+              userEthBalance = parseFloat(balanceResponse.data.ethBalance || "0");
+
+              if (userEthBalance === 0 || !Number.isFinite(userEthBalance)) {
+                console.log(`[Balance Check] User ${plan.userAddress} has zero or invalid ETH balance, skipping`);
+                return;
+              }
+
+              console.log(`[Balance Check] User ${plan.userAddress} ETH balance: ${userEthBalance} ETH`);
+            } catch (balanceErr) {
+              console.warn(`[Balance Check] Failed to fetch ETH balance for ${plan.userAddress}:`, balanceErr);
+              return;
+            }
+
+            // Consider only tasks that have actually consumed TG (completed or processing)
+            const tasksWithCost = taskData.filter((task: any) => {
+              const tStatus = String(task.task_status).toLowerCase();
+              return (
+                (tStatus === "completed" || tStatus === "processing") &&
+                task.task_opx_cost !== undefined &&
+                task.task_opx_cost !== null
+              );
+            });
+
+            // If no historical task data, we can't calculate average cost
+            if (tasksWithCost.length === 0) {
+              console.log(`[Balance Check] No historical task data for job ${plan.jobId}, skipping`);
+              return;
+            }
+
+            const taskOpxCosts = tasksWithCost.map((task: any) =>
+              parseFloat(task.task_opx_cost?.toString() || "0")
+            );
+
+            const totalTaskCost = taskOpxCosts.reduce(
+              (sum: number, cost: number) => sum + cost,
+              0
+            );
+
+            // Average cost per execution for this job (in ETH)
+            const avgTaskCost = totalTaskCost / tasksWithCost.length;
+            if (!Number.isFinite(avgTaskCost) || avgTaskCost <= 0) {
+              console.log(`[Balance Check] Invalid average task cost for job ${plan.jobId}, skipping`);
+              return;
+            }
+
+            console.log(`[Balance Check] Job ${plan.jobId} - Avg task cost: ${avgTaskCost} ETH`);
+
+            // Calculate how many more transactions the user can execute with current ETH balance
+            const remainingExecutions = Math.floor(userEthBalance / avgTaskCost);
+
+            console.log(`[Balance Check] Job ${plan.jobId} - Remaining executions: ${remainingExecutions}`);
+
+            // Only trigger countdown notifications when exactly 3, 2, or 1 executions remain
+            if (
+              remainingExecutions === 3 ||
+              remainingExecutions === 2 ||
+              remainingExecutions === 1
+            ) {
+              // Calculate percentage of balance that would be used
+              const projectedCost = avgTaskCost * remainingExecutions;
+              const percentageRemaining = (projectedCost / userEthBalance) * 100;
+
+              lowBalanceWarnings.push({
+                userAddress: plan.userAddress,
+                jobId: plan.jobId,
+                planId: plan.id,
+                fid: plan.fid ?? null,
+                jobCostPrediction: userEthBalance, // Use actual ETH balance
+                totalTaskCost: avgTaskCost, // Use average task cost
+                percentageUsed: Number((100 - percentageRemaining).toFixed(2)),
+                remainingExecutions,
+              });
+
+              console.log(
+                `[Balance Check] ⚠️ LOW BALANCE WARNING: User ${plan.userAddress}, Job ${plan.jobId}, ` +
+                `Only ${remainingExecutions} execution(s) remaining! ` +
+                `(ETH balance: ${userEthBalance}, avg cost: ${avgTaskCost})`
+              );
+            }
+          } catch (err) {
+            console.warn(
+              `[Balance Check] Error processing plan ${plan.id} (jobId ${plan.jobId}):`,
+              err
+            );
+          }
+        })
+      );
+
+      // Small delay between batches to avoid rate limiting
+      if (i + batchSize < plans.length) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+
+    console.log(
+      `[Balance Check] Found ${lowBalanceWarnings.length} plans with low balance`
+    );
+
+    res.json({
+      success: true,
+      data: lowBalanceWarnings,
+      message: `Found ${lowBalanceWarnings.length} plans with low ETH wallet balance (only 3, 2, or 1 executions remaining)`,
+    });
+  } catch (error) {
+    console.error(
+      "[Balance Check] Error fetching low balance warnings:",
+      error
+    );
+    res.status(500).json({
+      success: false,
+      error: "Internal Server Error",
+      message: "Failed to fetch low balance warnings",
     });
   }
 });
@@ -1466,6 +1667,11 @@ router.get("/platform-stats", async (req, res) => {
       };
     });
 
+    const total_successful_task = enrichedUsers.reduce(
+      (sum, user) => sum + (user.successCount || 0),
+      0
+    );
+
     // Get unique users count
     const uniqueUserAddresses = new Set(
       enrichedUsers.map((u) => u.userAddress)
@@ -1483,6 +1689,7 @@ router.get("/platform-stats", async (req, res) => {
       total_job_failed: totalJobFailed,
       total_job_processing: totalJobProcessing,
       total_value_swapped: totalValueSwapped,
+      total_successful_task: total_successful_task,
       users: enrichedUsers.map((user) => ({
         Address: user.userAddress,
         fid: user.fid,
@@ -1504,10 +1711,10 @@ router.get("/platform-stats", async (req, res) => {
 
     const response = isHomeRequest
       ? {
-          total_job_live_count: fullResponse.total_job_live_count,
-          total_value_swapped: fullResponse.total_value_swapped,
-          last_update: fullResponse.last_update,
-        }
+        total_job_live_count: fullResponse.total_job_live_count,
+        total_value_swapped: fullResponse.total_value_swapped,
+        last_update: fullResponse.last_update,
+      }
       : fullResponse;
 
     return res.json({

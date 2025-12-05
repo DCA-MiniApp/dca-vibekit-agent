@@ -6,8 +6,10 @@ import { prepareSwapRouter } from './routes/dca.prepareSwap.js';
 import { statusRoutes } from './routes/status.js';
 
 // Initialize notification infrastructure
-// This will auto-start the poller (checks for failed tasks every 3 minutes)
+// This will auto-start the poller (checks for failed tasks every 20 minutes)
 // import '../notification-infra/pollFailedTasks.js';
+// This will auto-start the balance warning poller (checks for low balance every 5 minutes)
+// import '../notification-infra/pollLowBalanceWarnings.js';
 // This will auto-start the worker (processes notification jobs from queue)
 // import '../notification-infra/notificationWorker.js';
 
