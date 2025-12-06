@@ -10,6 +10,7 @@ import {
 } from "../../types/shared.js";
 import { getJobDataById, TriggerXClient, checkEthBalance } from "sdk-triggerx";
 import { getTokenPrice } from "../../utils/tokenPrice.js";
+import { getCache, setCache, CacheKeys, invalidateUserCache } from "../../utils/cache.js";
 const router: Router = Router();
 import { ethers } from "ethers";
 
@@ -265,6 +266,12 @@ router.post("/create", async (req, res) => {
     console.log(
       `✅ Created DCA plan: ${validatedData.fromToken} → ${validatedData.toToken} for ${validatedData.userAddress}`
     );
+
+    // Invalidate user cache
+    if (dcaPlan.userAddress) {
+      await invalidateUserCache(dcaPlan.userAddress);
+    }
+
     res.status(201).json(response);
   } catch (error) {
     console.error("Error creating DCA plan:", error);
@@ -291,6 +298,7 @@ router.post("/create", async (req, res) => {
 
 // Get user's DCA plans
 router.get("/plans/:userAddress", async (req, res) => {
+  const startTime = Date.now();
   try {
     const { userAddress } = req.params;
 
@@ -303,6 +311,18 @@ router.get("/plans/:userAddress", async (req, res) => {
       };
       return res.status(400).json(response);
     }
+
+    // Check cache first
+    const cacheKey = CacheKeys.userPlans(userAddress);
+    const cachedData = await getCache<ApiResponse<DCAPlanResponse[]>>(cacheKey);
+
+    if (cachedData) {
+      const duration = Date.now() - startTime;
+      console.log(`[Cache HIT] Returning cached data for ${userAddress} in ${duration}ms`);
+      return res.json(cachedData);
+    }
+
+    console.log(`[Cache MISS] Fetching fresh data for ${userAddress}`);
 
     const dcaPlans = await prisma.dcaPlan.findMany({
       where: {
@@ -392,6 +412,12 @@ router.get("/plans/:userAddress", async (req, res) => {
       message: `Found ${formattedPlans.length} DCA plans`,
     };
 
+    // Store in cache (15 minutes TTL)
+    await setCache(cacheKey, response, 900);
+
+    const duration = Date.now() - startTime;
+    console.log(`[Cache MISS] Processed fresh data for ${userAddress} in ${duration}ms`);
+
     res.json(response);
   } catch (error) {
     console.error("Error fetching DCA plans:", error);
@@ -411,7 +437,7 @@ router.put("/plans/:planId/details", async (req, res) => {
     const { planId } = req.params;
     console.log('🔍 [API /plans/:planId/details] Updating plan:', planId);
     console.log('🔍 [API /plans/:planId/details] Request body:', JSON.stringify(req.body, null, 2));
-    
+
     const validatedData = UpdateDCAPlanDetailsSchema.parse(req.body);
 
     // Check if plan exists
@@ -484,6 +510,12 @@ router.put("/plans/:planId/details", async (req, res) => {
     console.log(
       `✅ Updated DCA plan ${planId} details: jobId=${validatedData.jobId}, ipfsLink=${validatedData.ipfsLink}`
     );
+
+    // Invalidate user cache
+    if (updatedPlan.userAddress) {
+      await invalidateUserCache(updatedPlan.userAddress);
+    }
+
     res.json(response);
   } catch (error) {
     console.error("Error updating DCA plan details:", error);
@@ -561,6 +593,12 @@ router.put("/plans/:planId", async (req, res) => {
     console.log(
       `✅ Updated DCA plan ${planId} status to ${validatedData.status}`
     );
+
+    // Invalidate user cache
+    if (updatedPlan.userAddress) {
+      await invalidateUserCache(updatedPlan.userAddress);
+    }
+
     res.json(response);
   } catch (error) {
     console.error("Error updating DCA plan:", error);
@@ -587,6 +625,7 @@ router.put("/plans/:planId", async (req, res) => {
 
 // Get all execution history for a user (across all plans)
 router.get("/user/:userAddress/history", async (req, res) => {
+  const startTime = Date.now();
   try {
     const { userAddress } = req.params;
     console.log(`Fetching job/task history for user: ${userAddress}`);
@@ -599,6 +638,18 @@ router.get("/user/:userAddress/history", async (req, res) => {
         message: "Invalid Ethereum address format",
       });
     }
+
+    // Check cache first
+    const cacheKey = CacheKeys.userHistory(userAddress);
+    const cachedData = await getCache<ApiResponse>(cacheKey);
+
+    if (cachedData) {
+      const duration = Date.now() - startTime;
+      console.log(`[Cache HIT] Returning cached history for ${userAddress} in ${duration}ms`);
+      return res.json(cachedData);
+    }
+
+    console.log(`[Cache MISS] Fetching fresh history for ${userAddress}`);
 
     // Get all DCA plans for the user
     const dcaPlans = await prisma.dcaPlan.findMany({
@@ -690,11 +741,19 @@ router.get("/user/:userAddress/history", async (req, res) => {
       })
     );
 
-    res.json({
+    const response = {
       success: true,
       data: history,
       message: `Found ${history.length} completed/failed task executions for user ${userAddress}`,
-    });
+    };
+
+    // Store in cache (15 minutes TTL)
+    await setCache(cacheKey, response, 900);
+
+    const duration = Date.now() - startTime;
+    console.log(`[Cache MISS] Processed fresh history for ${userAddress} in ${duration}ms`);
+
+    res.json(response);
   } catch (error) {
     console.error("Error fetching user job/task history:", error);
     res.status(500).json({
@@ -705,13 +764,6 @@ router.get("/user/:userAddress/history", async (req, res) => {
   }
 });
 //
-// --- Notes: ---
-// - Only tasks with status 'completed' or 'failed' are returned.
-// - Tasks in "process" are not returned.
-// - Slippage is included for each item.
-// - Conversion rate is toAmount / fromAmount, if available and fromAmount !== 0.
-
-// Execution history endpoint removed - execution data now comes from TriggerX API via /user/:userAddress/history
 
 // Platform statistics (duplicate of /api/status/stats for convenience)
 router.get("/stats", async (req, res) => {

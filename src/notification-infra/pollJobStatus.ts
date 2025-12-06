@@ -17,100 +17,50 @@ interface JobStatusData {
     fid: number | null;
     username: string | null;
     jobStatus: string;
+    intervalSeconds?: number;
+    durationSeconds?: number;
     taskId?: number;
     taskStatus?: string;
     txUrl?: string;
 }
 
-// Test data for testing without database or TriggerX API
-const TEST_DCA_PLANS = [
-    {
-        id: "test-plan-001",
-        userAddress: "0x40049FaB24B6115cD36D9Ce64EA35185f8bae810",
-        fromToken: "USDC",
-        toToken: "ETH",
-        amount: "10",
-        jobId: "1136658311433740703811181913266269765208135782441174104049747574954918004",
-        ipfsLink: "https://ipfs.io/ipfs/QmTest123",
-        fid: 727291,
-        status: "ACTIVE",
-    },
-    {
-        id: "test-plan-002",
-        userAddress: "0x1234567890123456789012345678901234567890",
-        fromToken: "USDC",
-        toToken: "ARB",
-        amount: "50",
-        jobId: "1136658311433740703811181913266269765208135782441174104049747574954918005",
-        ipfsLink: null,
-        fid: null,
-        status: "ACTIVE",
-    },
-];
+/**
+ * Convert seconds to human-readable format
+ */
+function formatSeconds(seconds: number): string {
+    if (seconds < 60) {
+        return `${seconds} second${seconds !== 1 ? 's' : ''}`;
+    }
 
-const TEST_JOB_DATA_RESPONSE = {
-    success: true,
-    data: {
-        jobData: {
-            job_id: "1136658311433740703811181913266269765208135782441174104049747574954918004",
-            job_title: "dca-automate",
-            task_definition_id: 2,
-            user_id: 46,
-            link_job_id: null,
-            chain_status: 0,
-            custom: true,
-            time_frame: 10800,
-            recurring: false,
-            status: "processing",
-            job_cost_prediction: 0.000018512366947098,
-            job_cost_actual: 0,
-            task_ids: [31132, 31135],
-            created_at: "2025-12-05T06:33:50.391Z",
-            updated_at: "2025-12-05T06:33:50.391Z",
-            last_executed_at: "0001-01-01T00:00:00Z",
-            timezone: "Asia/Calcutta",
-            is_imua: false,
-            created_chain_id: "42161",
-            safe_address: "",
-        },
-        taskData: [
-            {
-                task_id: 31132,
-                task_number: 0,
-                task_opx_cost: 0.00001,
-                execution_timestamp: "2025-12-05T06:35:00.000Z",
-                execution_tx_hash: "0xabc123def456",
-                task_performer_id: 1,
-                task_attester_ids: [1, 2],
-                task_status: "completed",
-                task_error: "",
-                is_accepted: true,
-                tx_url: "https://arbiscan.io/tx/0xabc123def456",
-                converted_arguments: null,
-            },
-            {
-                task_id: 31135,
-                task_number: 1,
-                task_opx_cost: 0,
-                execution_timestamp: "0001-01-01T00:00:00Z",
-                execution_tx_hash: "",
-                task_performer_id: 0,
-                task_attester_ids: null,
-                task_status: "processing",
-                task_error: "",
-                is_accepted: false,
-                tx_url: "",
-                converted_arguments: null,
-            },
-        ],
-    },
-};
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
 
-const TEST_USER_DATA = {
-    fid: "727291",
-    username: "alice.eth",
-    userAddress: "0x40049FaB24B6115cD36D9Ce64EA35185f8bae810",
-};
+    if (days > 0) {
+        const remainingHours = hours % 24;
+        if (remainingHours === 0) {
+            return `${days} day${days !== 1 ? 's' : ''}`;
+        }
+        return `${days} day${days !== 1 ? 's' : ''} ${remainingHours} hour${remainingHours !== 1 ? 's' : ''}`;
+    }
+
+    if (hours > 0) {
+        const remainingMinutes = minutes % 60;
+        if (remainingMinutes === 0) {
+            return `${hours} hour${hours !== 1 ? 's' : ''}`;
+        }
+        return `${hours} hour${hours !== 1 ? 's' : ''} ${remainingMinutes} minute${remainingMinutes !== 1 ? 's' : ''}`;
+    }
+
+    return `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+}
+
+/**
+ * Utility function to delay execution (for rate limiting)
+ */
+function delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 /**
  * Send notification to Slack webhook
@@ -181,7 +131,7 @@ async function sendSlackNotification(data: JobStatusData) {
             type: "section",
             text: {
                 type: "mrkdwn",
-                text: `*User Address:* ${userAddress}\n*FID:* ${fid || "N/A"}\n*Job Status:* ${jobStatusDisplay}`,
+                text: `*User Address:* ${userAddress}\n*Job Status:* ${jobStatusDisplay}`,
             },
         },
     ];
@@ -205,6 +155,28 @@ async function sendSlackNotification(data: JobStatusData) {
             text: `*Swap:* ${amount} ${fromToken} → ${toToken}`,
         },
     });
+
+    // Add interval and duration information if available
+    if (data.intervalSeconds || data.durationSeconds) {
+        const intervalText = data.intervalSeconds
+            ? `*Interval:* ${formatSeconds(data.intervalSeconds)}`
+            : null;
+        const durationText = data.durationSeconds
+            ? `*Duration:* ${formatSeconds(data.durationSeconds)}`
+            : null;
+
+        const scheduleText = [intervalText, durationText].filter(Boolean).join('\n');
+
+        if (scheduleText) {
+            blocks.push({
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: scheduleText,
+                },
+            });
+        }
+    }
 
     // Add task information if available
     if (taskId !== undefined && taskStatus) {
@@ -276,30 +248,112 @@ async function sendSlackNotification(data: JobStatusData) {
 }
 
 /**
+ * Send a summary notification with overall stats
+ */
+async function sendSummaryNotification(
+    stats: {
+        totalPlans: number;
+        jobStatuses: any;
+        taskStatuses: any;
+        newUpdates: JobStatusData[];
+    },
+    notifiedCount: number,
+    skippedCount: number
+) {
+    if (!SLACK_WEBHOOK_URL) {
+        console.warn("[Job Status Poller] SLACK_WEBHOOK_URL not configured. Skipping summary notification.");
+        return;
+    }
+
+    const blocks: any[] = [
+        {
+            type: "header",
+            text: {
+                type: "plain_text",
+                text: "📊 DCA Job Status Summary",
+                emoji: true,
+            },
+        },
+        {
+            type: "section",
+            text: {
+                type: "mrkdwn",
+                text: `*Polling Cycle Complete*\nChecked ${stats.totalPlans} DCA plans`,
+            },
+        },
+        {
+            type: "section",
+            fields: [
+                {
+                    type: "mrkdwn",
+                    text: `*Job Statuses:*\n✅ Completed: ${stats.jobStatuses.completed || 0}\n⏳ Processing: ${stats.jobStatuses.processing || 0}\n⏸️ Pending: ${stats.jobStatuses.pending || 0}\n❌ Failed: ${stats.jobStatuses.failed || 0}`,
+                },
+                {
+                    type: "mrkdwn",
+                    text: `*Task Statuses:*\n✅ Completed: ${stats.taskStatuses.completed || 0}\n⏳ Processing: ${stats.taskStatuses.processing || 0}\n⏸️ Pending: ${stats.taskStatuses.pending || 0}\n❌ Failed: ${stats.taskStatuses.failed || 0}`,
+                },
+            ],
+        },
+        {
+            type: "section",
+            text: {
+                type: "mrkdwn",
+                text: `*Notifications:*\n• Sent: ${notifiedCount}\n• Skipped (duplicates): ${skippedCount}\n• Total plans: ${stats.totalPlans}`,
+            },
+        },
+        {
+            type: "context",
+            elements: [
+                {
+                    type: "mrkdwn",
+                    text: `_${new Date().toISOString()}_`,
+                },
+            ],
+        },
+    ];
+
+    try {
+        await axios.post(
+            SLACK_WEBHOOK_URL,
+            {
+                blocks,
+                text: `DCA Job Status Summary - ${stats.totalPlans} plans checked`,
+            },
+            {
+                timeout: 10000,
+                headers: {
+                    "Content-Type": "application/json",
+                },
+            }
+        );
+        console.log(
+            `[Job Status Poller] ✅ Sent summary notification (${stats.totalPlans} plans)`
+        );
+    } catch (error: any) {
+        console.error(
+            `[Job Status Poller] ❌ Failed to send summary notification:`,
+            error.message || error
+        );
+    }
+}
+
+/**
  * Polls DCA plans with jobId and sends status updates to Slack.
  * Runs every 5 minutes to check for job status updates.
  */
 export async function pollJobStatusOnce() {
     try {
-        let dcaPlans: any[] = [];
-        const useTestData = process.env.JOB_STATUS_POLLER_TEST_DATA === "TRUE";
+        console.log("[Job Status Poller] Fetching DCA plans with jobId...");
 
-        if (useTestData) {
-            console.log("[Job Status Poller] 🧪 Using TEST data (JOB_STATUS_POLLER_TEST_DATA=TRUE)");
-            dcaPlans = TEST_DCA_PLANS;
-        } else {
-            console.log("[Job Status Poller] Fetching DCA plans with jobId...");
-
-            // Fetch all DCA plans that have a jobId
-            dcaPlans = await prisma.dcaPlan.findMany({
-                where: {
-                    jobId: { not: null },
-                },
-                orderBy: {
-                    createdAt: "desc",
-                },
-            });
-        }
+        // Fetch all DCA plans that have a jobId
+        const dcaPlans = await prisma.dcaPlan.findMany({
+            where: {
+                jobId: { not: null },
+            },
+            orderBy: {
+                createdAt: "desc",
+            },
+        });
 
         console.log(
             `[Job Status Poller] Found ${dcaPlans.length} DCA plan(s) with jobId`
@@ -316,6 +370,21 @@ export async function pollJobStatusOnce() {
         let notifiedCount = 0;
         let skippedCount = 0;
 
+        // Track stats for summary
+        const stats = {
+            totalPlans: dcaPlans.length,
+            jobStatuses: { pending: 0, processing: 0, completed: 0, failed: 0 } as any,
+            taskStatuses: { pending: 0, processing: 0, completed: 0, failed: 0 } as any,
+            newUpdates: [] as JobStatusData[],
+        };
+
+        // Max individual notifications to send (prevent spam)
+        const MAX_INDIVIDUAL_NOTIFICATIONS = parseInt(process.env.MAX_SLACK_NOTIFICATIONS_PER_RUN || "10");
+
+        // Rate limiting: delay after every N notifications
+        const RATE_LIMIT_BATCH_SIZE = 10;
+        const RATE_LIMIT_DELAY_MS = 1000; // 1 second delay between batches
+
         for (const plan of dcaPlans) {
             try {
                 const { jobId, userAddress, fid, ipfsLink } = plan;
@@ -329,19 +398,12 @@ export async function pollJobStatusOnce() {
                     `[Job Status Poller] Checking job ${jobId} for plan ${plan.id}...`
                 );
 
-                // Fetch job data from TriggerX SDK or use test data
-                let jobDataResp: any;
-
-                if (useTestData) {
-                    console.log(`[Job Status Poller] 🧪 Using test job data for ${jobId}`);
-                    jobDataResp = TEST_JOB_DATA_RESPONSE;
-                } else {
-                    jobDataResp = await getJobDataById(
-                        triggerxClient,
-                        jobId,
-                        userAddress
-                    );
-                }
+                // Fetch job data from TriggerX SDK
+                const jobDataResp = await getJobDataById(
+                    triggerxClient,
+                    jobId,
+                    userAddress
+                );
 
                 if (!jobDataResp || !jobDataResp.success || !jobDataResp.data) {
                     console.warn(
@@ -356,24 +418,24 @@ export async function pollJobStatusOnce() {
                 // Extract job status
                 const jobStatus = jobData.status;
 
-                // Fetch username from user table if fid is available or use test data
+                // Track stats
+                if (stats.jobStatuses[jobStatus] !== undefined) {
+                    stats.jobStatuses[jobStatus]++;
+                }
+
+                // Fetch username from user table if fid is available
                 let username: string | null = null;
                 if (fid) {
-                    if (useTestData) {
-                        console.log(`[Job Status Poller] 🧪 Using test username for fid ${fid}`);
-                        username = TEST_USER_DATA.username;
-                    } else {
-                        try {
-                            const user = await prisma.user.findUnique({
-                                where: { fid: fid.toString() },
-                            });
-                            username = user?.username || null;
-                        } catch (err) {
-                            console.warn(
-                                `[Job Status Poller] Failed to fetch username for fid ${fid}:`,
-                                err
-                            );
-                        }
+                    try {
+                        const user = await prisma.user.findUnique({
+                            where: { fid: fid.toString() },
+                        });
+                        username = user?.username || null;
+                    } catch (err) {
+                        console.warn(
+                            `[Job Status Poller] Failed to fetch username for fid ${fid}:`,
+                            err
+                        );
                     }
                 }
 
@@ -383,12 +445,14 @@ export async function pollJobStatusOnce() {
                     userAddress: plan.userAddress,
                     fromToken: plan.fromToken,
                     toToken: plan.toToken,
-                    amount: typeof plan.amount === 'string' ? plan.amount : plan.amount.toString(),
+                    amount: plan.amount.toString(),
                     jobId: jobId,
-                    ipfsLink: ipfsLink || null,
+                    ipfsLink: plan.ipfsLink,
                     fid: fid,
                     username: username,
                     jobStatus: jobStatus,
+                    intervalSeconds: plan.intervalSeconds,
+                    durationSeconds: plan.durationSeconds,
                 };
 
                 // Create idempotency key for job status
@@ -398,12 +462,28 @@ export async function pollJobStatusOnce() {
                 const jobStatusSent = await tryInsertDedup(jobIdempotencyKey);
 
                 if (jobStatusSent) {
-                    // Send job status notification
-                    await sendSlackNotification(baseData);
-                    notifiedCount++;
-                    console.log(
-                        `[Job Status Poller] Sent job status notification (${jobStatus}) for job ${jobId}`
-                    );
+                    // Only send individual notifications for important statuses or if under limit
+                    const isImportantStatus = jobStatus === "completed" || jobStatus === "failed";
+
+                    if (isImportantStatus || stats.newUpdates.length < MAX_INDIVIDUAL_NOTIFICATIONS) {
+                        stats.newUpdates.push(baseData);
+                        await sendSlackNotification(baseData);
+                        notifiedCount++;
+
+                        // Rate limiting: add delay after every batch
+                        if (notifiedCount % RATE_LIMIT_BATCH_SIZE === 0) {
+                            console.log(`[Job Status Poller] ⏳ Rate limit: waiting ${RATE_LIMIT_DELAY_MS}ms after ${RATE_LIMIT_BATCH_SIZE} notifications...`);
+                            await delay(RATE_LIMIT_DELAY_MS);
+                        }
+
+                        console.log(
+                            `[Job Status Poller] Sent job status notification (${jobStatus}) for job ${jobId}`
+                        );
+                    } else {
+                        console.log(
+                            `[Job Status Poller] Queued job status update (${jobStatus}) for summary (limit reached)`
+                        );
+                    }
                 } else {
                     console.log(
                         `[Job Status Poller] Skipping duplicate job status notification (${jobStatus}) for job ${jobId}`
@@ -417,6 +497,11 @@ export async function pollJobStatusOnce() {
                         const taskStatus = task.task_status;
                         const txUrl = task.tx_url || "";
 
+                        // Track task stats
+                        if (stats.taskStatuses[taskStatus] !== undefined) {
+                            stats.taskStatuses[taskStatus]++;
+                        }
+
                         // Create idempotency key for task status
                         const taskIdempotencyKey = `${jobId}:task:${taskId}:${taskStatus}`;
 
@@ -424,19 +509,35 @@ export async function pollJobStatusOnce() {
                         const taskStatusSent = await tryInsertDedup(taskIdempotencyKey);
 
                         if (taskStatusSent) {
-                            // Send task status notification
-                            const taskData: JobStatusData = {
-                                ...baseData,
-                                taskId: taskId,
-                                taskStatus: taskStatus,
-                                txUrl: txUrl || undefined,
-                            };
+                            // Only send for important task statuses or if under limit
+                            const isImportantTaskStatus = taskStatus === "completed" || taskStatus === "failed";
 
-                            await sendSlackNotification(taskData);
-                            notifiedCount++;
-                            console.log(
-                                `[Job Status Poller] Sent task status notification (${taskStatus}) for task ${taskId}, job ${jobId}`
-                            );
+                            if (isImportantTaskStatus || stats.newUpdates.length < MAX_INDIVIDUAL_NOTIFICATIONS) {
+                                // Send task status notification
+                                const taskNotificationData: JobStatusData = {
+                                    ...baseData,
+                                    taskId: taskId,
+                                    taskStatus: taskStatus,
+                                    txUrl: txUrl || undefined,
+                                };
+
+                                await sendSlackNotification(taskNotificationData);
+                                notifiedCount++;
+
+                                // Rate limiting: add delay after every batch
+                                if (notifiedCount % RATE_LIMIT_BATCH_SIZE === 0) {
+                                    console.log(`[Job Status Poller] ⏳ Rate limit: waiting ${RATE_LIMIT_DELAY_MS}ms after ${RATE_LIMIT_BATCH_SIZE} notifications...`);
+                                    await delay(RATE_LIMIT_DELAY_MS);
+                                }
+
+                                console.log(
+                                    `[Job Status Poller] Sent task status notification (${taskStatus}) for task ${taskId}, job ${jobId}`
+                                );
+                            } else {
+                                console.log(
+                                    `[Job Status Poller] Queued task status update (${taskStatus}) for summary (limit reached)`
+                                );
+                            }
                         } else {
                             console.log(
                                 `[Job Status Poller] Skipping duplicate task status notification (${taskStatus}) for task ${taskId}, job ${jobId}`
@@ -452,6 +553,11 @@ export async function pollJobStatusOnce() {
                 );
                 skippedCount++;
             }
+        }
+
+        // Send summary if we have lots of updates or hit the limit
+        if (notifiedCount >= MAX_INDIVIDUAL_NOTIFICATIONS || dcaPlans.length > 20) {
+            await sendSummaryNotification(stats, notifiedCount, skippedCount);
         }
 
         console.log(
@@ -471,8 +577,8 @@ export async function pollJobStatusOnce() {
  */
 export function startJobStatusPoller() {
     // Schedule to run every 5 minutes
-    // Cron expression: "*/5 * * * *" means every 5 minutes
-    cron.schedule("*/5 * * * *", () => {
+    // Cron expression: "*/5 * * * *" means every 10 minutes
+    cron.schedule("*/10 * * * *", () => {
         console.log("[Job Status Poller] Scheduled polling cycle started...");
         pollJobStatusOnce().catch((e) =>
             console.error("[Job Status Poller] Scheduled run error", e)
