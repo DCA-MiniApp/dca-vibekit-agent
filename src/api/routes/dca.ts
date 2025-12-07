@@ -10,7 +10,12 @@ import {
 } from "../../types/shared.js";
 import { getJobDataById, TriggerXClient, checkEthBalance } from "sdk-triggerx";
 import { getTokenPrice } from "../../utils/tokenPrice.js";
-import { getCache, setCache, CacheKeys, invalidateUserCache } from "../../utils/cache.js";
+import {
+  getCache,
+  setCache,
+  CacheKeys,
+  invalidateUserCache,
+} from "../../utils/cache.js";
 const router: Router = Router();
 import { ethers } from "ethers";
 
@@ -195,17 +200,35 @@ function calculateNextExecutionFromTasks(
 // Create DCA Plan
 router.post("/create", async (req, res) => {
   try {
-    console.log('🔍 [API /create] Raw request body:', JSON.stringify(req.body, null, 2));
-    console.log('🔍 [API /create] req.body.userAddress:', req.body.userAddress);
-    console.log('🔍 [API /create] Address length:', req.body.userAddress?.length);
-    console.log('🔍 [API /create] Address regex test:', /^0x[a-fA-F0-9]{40}$/.test(req.body.userAddress || ''));
+    console.log(
+      "🔍 [API /create] Raw request body:",
+      JSON.stringify(req.body, null, 2)
+    );
+    console.log("🔍 [API /create] req.body.userAddress:", req.body.userAddress);
+    console.log(
+      "🔍 [API /create] Address length:",
+      req.body.userAddress?.length
+    );
+    console.log(
+      "🔍 [API /create] Address regex test:",
+      /^0x[a-fA-F0-9]{40}$/.test(req.body.userAddress || "")
+    );
 
     // Validate request body
     const validatedData = CreateDCAPlanSchema.parse(req.body);
 
-    console.log('🔍 [API /create] After validation - userAddress:', validatedData.userAddress);
-    console.log('🔍 [API /create] After validation - Address length:', validatedData.userAddress?.length);
-    console.log('🔍 [API /create] After validation - Address regex test:', /^0x[a-fA-F0-9]{40}$/.test(validatedData.userAddress || ''));
+    console.log(
+      "🔍 [API /create] After validation - userAddress:",
+      validatedData.userAddress
+    );
+    console.log(
+      "🔍 [API /create] After validation - Address length:",
+      validatedData.userAddress?.length
+    );
+    console.log(
+      "🔍 [API /create] After validation - Address regex test:",
+      /^0x[a-fA-F0-9]{40}$/.test(validatedData.userAddress || "")
+    );
 
     // Calculate total executions based on duration and interval
     const totalExecutions = Math.floor(
@@ -216,12 +239,15 @@ router.post("/create", async (req, res) => {
     const amount = validatedData.amount;
     const slippage = parseFloat(validatedData.slippage || "2"); // Convert percentage to decimal
 
-    console.log('🔍 [API /create] BEFORE Prisma create - userAddress:', validatedData.userAddress);
+    console.log(
+      "🔍 [API /create] BEFORE Prisma create - userAddress:",
+      validatedData.userAddress
+    );
 
     // Create DCA plan in database
     const dcaPlan = await prisma.dcaPlan.create({
       data: {
-        userAddress: validatedData.userAddress,
+        userAddress: req.body.userAddress,
         fromToken: validatedData.fromToken.toUpperCase(),
         toToken: validatedData.toToken.toUpperCase(),
         amount: amount,
@@ -236,10 +262,22 @@ router.post("/create", async (req, res) => {
       },
     });
 
-    console.log('🔍 [API /create] AFTER Prisma create - dcaPlan.userAddress:', dcaPlan.userAddress);
-    console.log('🔍 [API /create] AFTER Prisma create - Address length:', dcaPlan.userAddress?.length);
-    console.log('🔍 [API /create] AFTER Prisma create - Address regex test:', /^0x[a-fA-F0-9]{40}$/.test(dcaPlan.userAddress || ''));
-    console.log('🔍 [API /create] Full dcaPlan object:', JSON.stringify(dcaPlan, null, 2));
+    console.log(
+      "🔍 [API /create] AFTER Prisma create - dcaPlan.userAddress:",
+      dcaPlan.userAddress
+    );
+    console.log(
+      "🔍 [API /create] AFTER Prisma create - Address length:",
+      dcaPlan.userAddress?.length
+    );
+    console.log(
+      "🔍 [API /create] AFTER Prisma create - Address regex test:",
+      /^0x[a-fA-F0-9]{40}$/.test(dcaPlan.userAddress || "")
+    );
+    console.log(
+      "🔍 [API /create] Full dcaPlan object:",
+      JSON.stringify(dcaPlan, null, 2)
+    );
 
     const response: ApiResponse<DCAPlanResponse> = {
       success: true,
@@ -262,14 +300,18 @@ router.post("/create", async (req, res) => {
       message: "DCA plan created successfully",
     };
 
-    console.log('🔍 [API /create] Response data userAddress:', response.data?.userAddress);
+    console.log(
+      "🔍 [API /create] Response data userAddress:",
+      response.data?.userAddress
+    );
     console.log(
       `✅ Created DCA plan: ${validatedData.fromToken} → ${validatedData.toToken} for ${validatedData.userAddress}`
     );
 
     // Invalidate user cache
     if (dcaPlan.userAddress) {
-      await invalidateUserCache(dcaPlan.userAddress);
+      const Addresskey=req.body.userAddress.toLowerCase();
+      await invalidateUserCache(Addresskey);
     }
 
     res.status(201).json(response);
@@ -313,12 +355,16 @@ router.get("/plans/:userAddress", async (req, res) => {
     }
 
     // Check cache first
-    const cacheKey = CacheKeys.userPlans(userAddress);
+    const Addresskey=userAddress.toLowerCase();
+    const cacheKey = CacheKeys.userPlans(Addresskey);
+    console.log(`Checking cache for key: ${cacheKey}`);
     const cachedData = await getCache<ApiResponse<DCAPlanResponse[]>>(cacheKey);
 
     if (cachedData) {
       const duration = Date.now() - startTime;
-      console.log(`[Cache HIT] Returning cached data for ${userAddress} in ${duration}ms`);
+      console.log(
+        `[Cache HIT] Returning cached data for ${userAddress} in ${duration}ms`
+      );
       return res.json(cachedData);
     }
 
@@ -327,7 +373,7 @@ router.get("/plans/:userAddress", async (req, res) => {
     const dcaPlans = await prisma.dcaPlan.findMany({
       where: {
         userAddress: userAddress,
-        status: "ACTIVE",
+        // status: "ACTIVE",
         jobId: { not: null },
       },
       orderBy: {
@@ -412,11 +458,13 @@ router.get("/plans/:userAddress", async (req, res) => {
       message: `Found ${formattedPlans.length} DCA plans`,
     };
 
-    // Store in cache (15 minutes TTL)
-    await setCache(cacheKey, response, 900);
+    // Store in cache (5 minutes TTL)
+    await setCache(cacheKey, response, 300);
 
     const duration = Date.now() - startTime;
-    console.log(`[Cache MISS] Processed fresh data for ${userAddress} in ${duration}ms`);
+    console.log(
+      `[Cache MISS] Processed fresh data for ${userAddress} in ${duration}ms`
+    );
 
     res.json(response);
   } catch (error) {
@@ -435,8 +483,11 @@ router.get("/plans/:userAddress", async (req, res) => {
 router.put("/plans/:planId/details", async (req, res) => {
   try {
     const { planId } = req.params;
-    console.log('🔍 [API /plans/:planId/details] Updating plan:', planId);
-    console.log('🔍 [API /plans/:planId/details] Request body:', JSON.stringify(req.body, null, 2));
+    console.log("🔍 [API /plans/:planId/details] Updating plan:", planId);
+    console.log(
+      "🔍 [API /plans/:planId/details] Request body:",
+      JSON.stringify(req.body, null, 2)
+    );
 
     const validatedData = UpdateDCAPlanDetailsSchema.parse(req.body);
 
@@ -454,9 +505,18 @@ router.put("/plans/:planId/details", async (req, res) => {
       return res.status(404).json(response);
     }
 
-    console.log('🔍 [API /plans/:planId/details] Existing plan userAddress:', existingPlan.userAddress);
-    console.log('🔍 [API /plans/:planId/details] Existing plan address length:', existingPlan.userAddress?.length);
-    console.log('🔍 [API /plans/:planId/details] Existing plan address regex test:', /^0x[a-fA-F0-9]{40}$/.test(existingPlan.userAddress || ''));
+    console.log(
+      "🔍 [API /plans/:planId/details] Existing plan userAddress:",
+      existingPlan.userAddress
+    );
+    console.log(
+      "🔍 [API /plans/:planId/details] Existing plan address length:",
+      existingPlan.userAddress?.length
+    );
+    console.log(
+      "🔍 [API /plans/:planId/details] Existing plan address regex test:",
+      /^0x[a-fA-F0-9]{40}$/.test(existingPlan.userAddress || "")
+    );
 
     // Prepare update data
     const updateData: any = {
@@ -482,9 +542,18 @@ router.put("/plans/:planId/details", async (req, res) => {
       data: updateData,
     });
 
-    console.log('🔍 [API /plans/:planId/details] AFTER update - updatedPlan.userAddress:', updatedPlan.userAddress);
-    console.log('🔍 [API /plans/:planId/details] AFTER update - Address length:', updatedPlan.userAddress?.length);
-    console.log('🔍 [API /plans/:planId/details] AFTER update - Address regex test:', /^0x[a-fA-F0-9]{40}$/.test(updatedPlan.userAddress || ''));
+    console.log(
+      "🔍 [API /plans/:planId/details] AFTER update - updatedPlan.userAddress:",
+      updatedPlan.userAddress
+    );
+    console.log(
+      "🔍 [API /plans/:planId/details] AFTER update - Address length:",
+      updatedPlan.userAddress?.length
+    );
+    console.log(
+      "🔍 [API /plans/:planId/details] AFTER update - Address regex test:",
+      /^0x[a-fA-F0-9]{40}$/.test(updatedPlan.userAddress || "")
+    );
 
     const response: ApiResponse<DCAPlanResponse> = {
       success: true,
@@ -513,7 +582,8 @@ router.put("/plans/:planId/details", async (req, res) => {
 
     // Invalidate user cache
     if (updatedPlan.userAddress) {
-      await invalidateUserCache(updatedPlan.userAddress);
+      const Addresskey=updatedPlan.userAddress.toLowerCase();
+      await invalidateUserCache(Addresskey);
     }
 
     res.json(response);
@@ -596,7 +666,7 @@ router.put("/plans/:planId", async (req, res) => {
 
     // Invalidate user cache
     if (updatedPlan.userAddress) {
-      await invalidateUserCache(updatedPlan.userAddress);
+      await invalidateUserCache(updatedPlan.userAddress.toLowerCase());
     }
 
     res.json(response);
@@ -640,12 +710,15 @@ router.get("/user/:userAddress/history", async (req, res) => {
     }
 
     // Check cache first
-    const cacheKey = CacheKeys.userHistory(userAddress);
+    const Addresskey=userAddress.toLowerCase();
+    const cacheKey = CacheKeys.userHistory(Addresskey);
     const cachedData = await getCache<ApiResponse>(cacheKey);
 
     if (cachedData) {
       const duration = Date.now() - startTime;
-      console.log(`[Cache HIT] Returning cached history for ${userAddress} in ${duration}ms`);
+      console.log(
+        `[Cache HIT] Returning cached history for ${userAddress} in ${duration}ms`
+      );
       return res.json(cachedData);
     }
 
@@ -747,11 +820,13 @@ router.get("/user/:userAddress/history", async (req, res) => {
       message: `Found ${history.length} completed/failed task executions for user ${userAddress}`,
     };
 
-    // Store in cache (15 minutes TTL)
-    await setCache(cacheKey, response, 900);
+    // Store in cache (5 minutes TTL)
+    await setCache(cacheKey, response, 300);
 
     const duration = Date.now() - startTime;
-    console.log(`[Cache MISS] Processed fresh history for ${userAddress} in ${duration}ms`);
+    console.log(
+      `[Cache MISS] Processed fresh history for ${userAddress} in ${duration}ms`
+    );
 
     res.json(response);
   } catch (error) {
@@ -1044,7 +1119,6 @@ router.get("/users/low-balance-warnings", async (req, res) => {
               return;
             }
 
-
             const jobData = jobDataResp.data?.jobData;
             const taskData = jobDataResp.data?.taskData || [];
 
@@ -1054,32 +1128,53 @@ router.get("/users/low-balance-warnings", async (req, res) => {
 
             // Skip if job is already completed, failed, pending, or deleted
             const status = jobData.status?.toLowerCase();
-            if (status === "completed" || status === "failed" || status === "pending" || status === "deleted") {
-              console.log(`[Balance Check] Skipping job ${plan.jobId} with status: ${status}`);
+            if (
+              status === "completed" ||
+              status === "failed" ||
+              status === "pending" ||
+              status === "deleted"
+            ) {
+              console.log(
+                `[Balance Check] Skipping job ${plan.jobId} with status: ${status}`
+              );
               return;
             }
 
             // Get user's actual ETH balance on Arbitrum (chainId: 42161)
             let userEthBalance: number;
             try {
-              const balanceResponse = await checkEthBalance(plan.userAddress, 42161);
+              const balanceResponse = await checkEthBalance(
+                plan.userAddress,
+                42161
+              );
 
               // checkEthBalance returns { success, data: { ethBalanceWei, ethBalance }, error, errorCode }
               if (!balanceResponse.success || !balanceResponse.data) {
-                console.log(`[Balance Check] Failed to fetch balance for ${plan.userAddress}: ${balanceResponse.error || 'Unknown error'}`);
+                console.log(
+                  `[Balance Check] Failed to fetch balance for ${plan.userAddress}: ${balanceResponse.error || "Unknown error"}`
+                );
                 return;
               }
 
-              userEthBalance = parseFloat(balanceResponse.data.ethBalance || "0");
+              userEthBalance = parseFloat(
+                balanceResponse.data.ethBalance || "0"
+              );
 
               if (userEthBalance === 0 || !Number.isFinite(userEthBalance)) {
-                console.log(`[Balance Check] User ${plan.userAddress} has zero or invalid ETH balance, skipping`);
+                console.log(
+                  `[Balance Check] User ${plan.userAddress} has zero or invalid ETH balance, skipping`
+                );
                 return;
               }
 
-              console.log(`[Balance Check] User ${plan.userAddress} ETH balance: ${userEthBalance} ETH`);
+              console.log(
+                `[Balance Check] User ${plan.userAddress} ETH balance: ${userEthBalance} ETH`
+              );
             } catch (balanceErr) {
-              console.warn(`[Balance Check] Failed to fetch ETH balance for ${plan.userAddress}:`, balanceErr);
+              console.warn(
+                `[Balance Check] Failed to fetch ETH balance for ${plan.userAddress}:`,
+                balanceErr
+              );
               return;
             }
 
@@ -1095,7 +1190,9 @@ router.get("/users/low-balance-warnings", async (req, res) => {
 
             // If no historical task data, we can't calculate average cost
             if (tasksWithCost.length === 0) {
-              console.log(`[Balance Check] No historical task data for job ${plan.jobId}, skipping`);
+              console.log(
+                `[Balance Check] No historical task data for job ${plan.jobId}, skipping`
+              );
               return;
             }
 
@@ -1111,16 +1208,24 @@ router.get("/users/low-balance-warnings", async (req, res) => {
             // Average cost per execution for this job (in ETH)
             const avgTaskCost = totalTaskCost / tasksWithCost.length;
             if (!Number.isFinite(avgTaskCost) || avgTaskCost <= 0) {
-              console.log(`[Balance Check] Invalid average task cost for job ${plan.jobId}, skipping`);
+              console.log(
+                `[Balance Check] Invalid average task cost for job ${plan.jobId}, skipping`
+              );
               return;
             }
 
-            console.log(`[Balance Check] Job ${plan.jobId} - Avg task cost: ${avgTaskCost} ETH`);
+            console.log(
+              `[Balance Check] Job ${plan.jobId} - Avg task cost: ${avgTaskCost} ETH`
+            );
 
             // Calculate how many more transactions the user can execute with current ETH balance
-            const remainingExecutions = Math.floor(userEthBalance / avgTaskCost);
+            const remainingExecutions = Math.floor(
+              userEthBalance / avgTaskCost
+            );
 
-            console.log(`[Balance Check] Job ${plan.jobId} - Remaining executions: ${remainingExecutions}`);
+            console.log(
+              `[Balance Check] Job ${plan.jobId} - Remaining executions: ${remainingExecutions}`
+            );
 
             // Only trigger countdown notifications when exactly 3, 2, or 1 executions remain
             if (
@@ -1130,7 +1235,8 @@ router.get("/users/low-balance-warnings", async (req, res) => {
             ) {
               // Calculate percentage of balance that would be used
               const projectedCost = avgTaskCost * remainingExecutions;
-              const percentageRemaining = (projectedCost / userEthBalance) * 100;
+              const percentageRemaining =
+                (projectedCost / userEthBalance) * 100;
 
               lowBalanceWarnings.push({
                 userAddress: plan.userAddress,
@@ -1145,8 +1251,8 @@ router.get("/users/low-balance-warnings", async (req, res) => {
 
               console.log(
                 `[Balance Check] ⚠️ LOW BALANCE WARNING: User ${plan.userAddress}, Job ${plan.jobId}, ` +
-                `Only ${remainingExecutions} execution(s) remaining! ` +
-                `(ETH balance: ${userEthBalance}, avg cost: ${avgTaskCost})`
+                  `Only ${remainingExecutions} execution(s) remaining! ` +
+                  `(ETH balance: ${userEthBalance}, avg cost: ${avgTaskCost})`
               );
             }
           } catch (err) {
@@ -1763,10 +1869,10 @@ router.get("/platform-stats", async (req, res) => {
 
     const response = isHomeRequest
       ? {
-        total_job_live_count: fullResponse.total_job_live_count,
-        total_value_swapped: fullResponse.total_value_swapped,
-        last_update: fullResponse.last_update,
-      }
+          total_job_live_count: fullResponse.total_job_live_count,
+          total_value_swapped: fullResponse.total_value_swapped,
+          last_update: fullResponse.last_update,
+        }
       : fullResponse;
 
     return res.json({
@@ -1790,7 +1896,9 @@ router.post("/trigger-job-status-poll", async (req, res) => {
     console.log("[API] Manual job status poll triggered");
 
     // Import the poll function dynamically to avoid circular dependencies
-    const { pollJobStatusOnce } = await import("../../notification-infra/pollJobStatus.js");
+    const { pollJobStatusOnce } = await import(
+      "../../notification-infra/pollJobStatus.js"
+    );
 
     // Trigger the poll asynchronously
     pollJobStatusOnce()
