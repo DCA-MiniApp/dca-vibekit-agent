@@ -576,8 +576,8 @@ export async function pollJobStatusOnce() {
  * Also runs once immediately on startup to catch any existing updates.
  */
 export function startJobStatusPoller() {
-    // Schedule to run every 5 minutes
-    // Cron expression: "*/5 * * * *" means every 10 minutes
+    // Schedule to run every 10 minutes
+    // Cron expression: "*/10 * * * *" means every 10 minutes
     cron.schedule("*/10 * * * *", () => {
         console.log("[Job Status Poller] Scheduled polling cycle started...");
         pollJobStatusOnce().catch((e) =>
