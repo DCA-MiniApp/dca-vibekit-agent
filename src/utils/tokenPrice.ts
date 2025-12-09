@@ -95,7 +95,6 @@ export async function getTokenPrice(
     } else {
       // It's a symbol, so look it up in the token map
       const contractAddress = getContractAddressFromSymbol(tokenIdentifier);
-      
       if (contractAddress) {
         // Use the contract address to fetch price
         price = await fetchPriceByContractAddress(contractAddress, chainId);
@@ -169,6 +168,7 @@ async function fetchPriceByContractAddress(
 
     const data = (await response.json()) as Record<string, { usd?: number }>;
     const lowerAddress = contractAddress.toLowerCase();
+    console.log(data?.[lowerAddress]?.usd);
     return data[lowerAddress]?.usd || null;
   } catch (error) {
     console.error(
