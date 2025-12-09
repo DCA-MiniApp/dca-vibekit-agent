@@ -59,9 +59,6 @@ export const createDCAPlanTool: VibkitToolDefinition<any, any, DCAContext, any> 
       // Return plan details without executing first swap - TriggerX will handle execution
       console.log('🔥 [TOOL] Plan created successfully. Returning plan details for TriggerX integration...');
 
-      // Calculate total executions for reference
-      const totalExecutions = Math.floor(durationSeconds / intervalSeconds);
-
       return createSuccessTask(
         'createDCAPlan',
         [result],
