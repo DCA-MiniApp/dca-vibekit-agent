@@ -375,6 +375,7 @@ router.get("/plans/:userAddress", async (req, res) => {
         userAddress: userAddress,
         // status: "ACTIVE",
         jobId: { not: null },
+        status: { not: "CANCELLED"},
       },
       orderBy: {
         createdAt: "desc",
@@ -1131,7 +1132,6 @@ router.get("/users/low-balance-warnings", async (req, res) => {
             if (
               status === "completed" ||
               status === "failed" ||
-              status === "pending" ||
               status === "deleted"
             ) {
               console.log(
@@ -1317,6 +1317,12 @@ router.put("/jobupdate/:userAddress", async (req, res) => {
         updatedAt: new Date(),
       },
     });
+
+    // Invalidate user cache
+    if (userAddress) {
+      const Addresskey = userAddress.toLowerCase();
+      await invalidateUserCache(Addresskey);
+    }
 
     res.json({
       success: true,
@@ -1896,9 +1902,8 @@ router.post("/trigger-job-status-poll", async (req, res) => {
     console.log("[API] Manual job status poll triggered");
 
     // Import the poll function dynamically to avoid circular dependencies
-    const { pollJobStatusOnce } = await import(
-      "../../notification-infra/pollJobStatus.js"
-    );
+    const { pollJobStatusOnce } =
+      await import("../../notification-infra/pollJobStatus.js");
 
     // Trigger the poll asynchronously
     pollJobStatusOnce()
