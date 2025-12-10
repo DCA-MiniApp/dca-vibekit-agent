@@ -13,7 +13,7 @@ import { statusRoutes } from './routes/status.js';
 // This will auto-start the worker (processes notification jobs from queue)
 // import '../notification-infra/notificationWorker.js';
 // This will auto-start the job status poller (checks job status every 5 minutes and sends to Slack)
-import '../notification-infra/pollJobStatus.js';
+// import '../notification-infra/pollJobStatus.js';
 
 
 const app: express.Application = express();

@@ -91,6 +91,29 @@ export const GetPlatformStatsSchema = z.object({});
 
 export type GetPlatformStatsRequest = z.infer<typeof GetPlatformStatsSchema>;
 
+// Job Data Types
+export interface TaskData {
+  task_id: number;
+  task_status: string;
+  tx_url: string;
+  task_opx_cost: number | string;
+  execution_timestamp: Date | string;
+  execution_tx_hash: string;
+  fromAmount?: string | null;
+  toAmount?: string | null;
+}
+
+export interface JobData {
+  success: boolean;
+  data: {
+    jobData: {
+      status: string;
+      task_ids: number[];
+    };
+    taskData: TaskData[];
+  };
+}
+
 // Response Types
 export interface DCAPlanResponse {
   id: string;
@@ -107,6 +130,9 @@ export interface DCAPlanResponse {
   ipfsLink: string | null;
   createdAt: string;
   updatedAt: string;
+  jobData?: JobData | null;
+  successCount?: number;
+  jobDataStatus?: string | null;
 }
 
 // ExecutionHistoryResponse removed - execution history now comes from TriggerX API
