@@ -13,7 +13,7 @@ export async function formatDCAPlanWithJobData(
     let jobData: JobData | null = null;
     if (plan.jobId) {
         try {
-            console.log(`Fetching job data for jobId ${plan.jobId}`);
+            // console.log(`Fetching job data for jobId ${plan.jobId}`);
             jobData = (await getJobDataById(
                 triggerxClient,
                 plan.jobId,

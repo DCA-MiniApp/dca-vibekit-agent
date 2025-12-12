@@ -16,7 +16,11 @@ import {
   CacheKeys,
   invalidateUserCache,
 } from "../../utils/cache.js";
-import { isValidEthAddress, getTxFee, getConversionRate } from "../../utils/blockchain.js";
+import {
+  isValidEthAddress,
+  getTxFee,
+  getConversionRate,
+} from "../../utils/blockchain.js";
 import {
   formatDCAPlanWithJobData,
   planToResponse,
@@ -44,6 +48,18 @@ router.post("/create", async (req, res) => {
       "🔍 [API /create] Raw request body:",
       JSON.stringify(req.body, null, 2)
     );
+
+    const incomingKey = req.headers["access-key"];
+    console.log("incomingKey:", incomingKey);
+    const serverKey = process.env.API_ACCESS_KEY;
+    console.log("serverKey:", serverKey);
+
+    if (!incomingKey || incomingKey !== serverKey) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized: Invalid access key",
+      });
+    }
 
     const validatedData = CreateDCAPlanSchema.parse(req.body);
 
@@ -97,6 +113,18 @@ router.post("/create", async (req, res) => {
 // Get user's DCA plans
 router.get("/plans/:userAddress", async (req, res) => {
   const startTime = Date.now();
+
+  // Validate Access Key
+  const incomingKey = req.headers["access-key"];
+  const serverKey = process.env.API_ACCESS_KEY;
+
+  if (!incomingKey || incomingKey !== serverKey) {
+    return res.status(401).json({
+      success: false,
+      message: "Unauthorized: Invalid access key",
+    });
+  }
+
   try {
     const { userAddress } = req.params;
     console.log("getting all plans for user", userAddress);
@@ -122,20 +150,17 @@ router.get("/plans/:userAddress", async (req, res) => {
 
     const dcaPlans = await prisma.dcaPlan.findMany({
       where: {
-        userAddress: userAddress,
+        userAddress,
         jobId: { not: null },
         status: { not: "CANCELLED" },
       },
-      orderBy: {
-        createdAt: "desc",
-      },
+      orderBy: { createdAt: "desc" },
     });
 
     const triggerxClient = new TriggerXClient(
       process.env.TRIGGERX_API_KEY || ""
     );
 
-    // Fetch job data for each plan (in parallel)
     const formattedPlans: DCAPlanResponse[] = await Promise.all(
       dcaPlans.map((plan) =>
         formatDCAPlanWithJobData(plan, triggerxClient, userAddress)
@@ -148,7 +173,6 @@ router.get("/plans/:userAddress", async (req, res) => {
       message: `Found ${formattedPlans.length} DCA plans`,
     };
 
-    // Store in cache (5 minutes TTL)
     await setCache(cacheKey, response, 300);
 
     const duration = Date.now() - startTime;
@@ -271,9 +295,20 @@ router.put("/plans/:planId", async (req, res) => {
 // Get all execution history for a user (across all plans)
 router.get("/user/:userAddress/history", async (req, res) => {
   const startTime = Date.now();
+
+  const incomingKey = req.headers["access-key"];
+  const serverKey = process.env.API_ACCESS_KEY;
+
+  if (!incomingKey || incomingKey !== serverKey) {
+    return res.status(401).json({
+      success: false,
+      message: "Unauthorized: Invalid access key",
+    });
+  }
+
   try {
     const { userAddress } = req.params;
-    console.log(`Fetching job/task history for user: ${userAddress}`);
+    // console.log(`Fetching job/task history for user: ${userAddress}`);
 
     if (!isValidEthAddress(userAddress)) {
       return sendInvalidAddressError(res);
@@ -850,7 +885,17 @@ router.get("/platform-stats", async (req, res) => {
       process.env.TRIGGERX_API_KEY || ""
     );
 
-    console.log("Request headers:", req.headers);
+    // console.log("Request headers:", req.headers);
+
+    const incomingKey = req.headers["access-key"];
+    const serverKey = process.env.API_ACCESS_KEY;
+
+    if (!incomingKey || incomingKey !== serverKey) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized: Invalid access key",
+      });
+    }
 
     // Fetch all DCA plans with jobId
     const dcaPlans = await prisma.dcaPlan.findMany({
@@ -870,7 +915,7 @@ router.get("/platform-stats", async (req, res) => {
       },
     });
 
-    console.log(`Processing ${dcaPlans.length} DCA plans for platform stats`);
+    // console.log(`Processing ${dcaPlans.length} DCA plans for platform stats`);
 
     // Process each plan to gather data
     const userDataMap = new Map<
@@ -1048,10 +1093,10 @@ router.get("/platform-stats", async (req, res) => {
 
     const response = isHomeRequest
       ? {
-        total_job_live_count: fullResponse.total_job_live_count,
-        total_value_swapped: fullResponse.total_value_swapped,
-        last_update: fullResponse.last_update,
-      }
+          total_job_live_count: fullResponse.total_job_live_count,
+          total_value_swapped: fullResponse.total_value_swapped,
+          last_update: fullResponse.last_update,
+        }
       : fullResponse;
 
     return res.json({

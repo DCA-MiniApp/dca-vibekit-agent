@@ -27,7 +27,7 @@ const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:3000';
 app.use(cors({
   origin: corsOrigin,
   methods: ['POST', 'PUT', 'DELETE', 'OPTIONS', 'GET'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'ishome'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'ishome','Access-Key'],
   credentials: true,
 }));
 
