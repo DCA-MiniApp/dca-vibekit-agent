@@ -11,7 +11,7 @@ import { statusRoutes } from './routes/status.js';
 // This will auto-start the balance warning poller (checks for low balance every 5 minutes)
 // import '../notification-infra/pollLowBalanceWarnings.js';
 // This will auto-start the worker (processes notification jobs from queue)
-// import '../notification-infra/notificationWorker.js';
+import '../notification-infra/notificationWorker.js';
 // This will auto-start the job status poller (checks for job status every 10 minutes)
 import '../notification-infra/pollJobStatus.js';
 
