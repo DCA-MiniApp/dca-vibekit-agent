@@ -444,7 +444,6 @@ router.get("/stats", async (req, res) => {
 
     // Get current counts
     const totalPlans = await prisma.dcaPlan.count();
-
     // Get unique users count
     const uniqueUsers = await prisma.dcaPlan.groupBy({
       by: ["userAddress"],
@@ -1055,10 +1054,11 @@ router.get("/platform-stats", async (req, res) => {
     );
 
     // Get unique users count
-    const uniqueUserAddresses = new Set(
-      enrichedUsers.map((u) => u.userAddress)
-    );
-    const totalUniqueUsers = uniqueUserAddresses.size;
+    const uniqueUsersList = await prisma.dcaPlan.groupBy({
+      by: ["userAddress"],
+      _count: true,
+    });
+    const totalUniqueUsers = uniqueUsersList.length;
 
     const isHomeRequest =
       typeof req.headers["ishome"] === "string" &&
@@ -1093,10 +1093,10 @@ router.get("/platform-stats", async (req, res) => {
 
     const response = isHomeRequest
       ? {
-          total_job_live_count: fullResponse.total_job_live_count,
-          total_value_swapped: fullResponse.total_value_swapped,
-          last_update: fullResponse.last_update,
-        }
+        total_job_live_count: fullResponse.total_job_live_count,
+        total_value_swapped: fullResponse.total_value_swapped,
+        last_update: fullResponse.last_update,
+      }
       : fullResponse;
 
     return res.json({

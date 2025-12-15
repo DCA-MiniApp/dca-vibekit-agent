@@ -55,6 +55,10 @@ const worker = new Worker<TxFailedPayload>(
       jobCostPrediction,
       totalTaskCost,
       percentageUsed,
+      fromToken,
+      toToken,
+      amount,
+      username,
     } = job.data;
 
     const notificationTypeLabel = notificationType || "failed-task";
@@ -110,6 +114,25 @@ const worker = new Worker<TxFailedPayload>(
           jobCostPrediction,
           totalTaskCost,
           percentageUsed,
+        };
+      } else if (notificationType === "task-success") {
+        // Successful task execution notification
+        notificationPayload = {
+          ...notificationPayload,
+          status: "success",
+          reason:
+            reason ||
+            `Hello${username ? `, ${username}` : ""}! Your plan ${
+              fromToken || ""
+            } -> ${toToken || ""} with amount ${amount || ""} executed successfully. Task ID: ${
+              job.data.taskId ?? ""
+            }.`,
+          taskId,
+          txHash,
+          chainId,
+          fromToken,
+          toToken,
+          amount,
         };
       } else {
         // Failed task notification (existing logic)

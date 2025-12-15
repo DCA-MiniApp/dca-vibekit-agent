@@ -3,6 +3,7 @@ import cron from "node-cron";
 import { tryInsertDedup } from "./dedup.js";
 import { prisma } from "../services/prisma.js";
 import { getJobDataById, TriggerXClient } from "sdk-triggerx";
+// import { notificationQueue } from "./notificationQueue.js";
 
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL || "";
 
@@ -513,7 +514,7 @@ export async function pollJobStatusOnce() {
                             const isImportantTaskStatus = taskStatus === "completed" || taskStatus === "failed";
 
                             if (isImportantTaskStatus || stats.newUpdates.length < MAX_INDIVIDUAL_NOTIFICATIONS) {
-                                // Send task status notification
+                                // Send task status notification (Slack)
                                 const taskNotificationData: JobStatusData = {
                                     ...baseData,
                                     taskId: taskId,
@@ -523,6 +524,39 @@ export async function pollJobStatusOnce() {
 
                                 await sendSlackNotification(taskNotificationData);
                                 notifiedCount++;
+
+                                // Additionally send Farcaster notification for completed tasks
+                                // if (taskStatus === "completed" && fid) {
+                                //     const fcIdempotencyKey = `${jobId}:task-success:${taskId}`;
+                                //     const fcOk = await tryInsertDedup(fcIdempotencyKey);
+                                //     if (fcOk) {
+                                //         await notificationQueue.add(
+                                //             "sendNotification",
+                                //             {
+                                //                 idempotencyKey: fcIdempotencyKey,
+                                //                 notificationType: "task-success",
+                                //                 jobId,
+                                //                 planId: plan.id,
+                                //                 userAddress,
+                                //                 fid,
+                                //                 taskId,
+                                //                 txHash: task.execution_tx_hash || undefined,
+                                //                 chainId: jobData.created_chain_id || undefined,
+                                //                 fromToken: plan.fromToken,
+                                //                 toToken: plan.toToken,
+                                //                 amount: plan.amount.toString(),
+                                //                 username,
+                                //                 reason: `Hello${username ? `, ${username}` : ""}! Your plan ${plan.fromToken} -> ${plan.toToken} with amount ${plan.amount.toString()} executed successfully. Task ID: ${taskId}. Please verify in the history tab.`,
+                                //             },
+                                //             {
+                                //                 attempts: 5,
+                                //                 backoff: { type: "exponential", delay: 5000 },
+                                //                 removeOnComplete: 1000,
+                                //                 removeOnFail: 1000,
+                                //             }
+                                //         );
+                                //     }
+                                // }
 
                                 // Rate limiting: add delay after every batch
                                 if (notifiedCount % RATE_LIMIT_BATCH_SIZE === 0) {

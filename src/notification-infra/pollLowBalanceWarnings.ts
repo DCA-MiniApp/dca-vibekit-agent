@@ -3,8 +3,7 @@ import cron from "node-cron";
 import { tryInsertDedup } from "./dedup.js";
 import { notificationQueue } from "./notificationQueue.js";
 
-const API_BASE_URL =
-  process.env.API_BASE_URL || "https://dca-backend.udonswap.org";
+const API_BASE_URL=process.env.API_BASE_URL || "https://dca-backend.udonswap.org";
 const LOW_BALANCE_WARNINGS_API = `${API_BASE_URL}/api/dca/users/low-balance-warnings`;
 
 /**
@@ -180,4 +179,3 @@ export function startBalancePoller() {
 if (process.env.DISABLE_AUTO_BALANCE_POLLER !== "true") {
   startBalancePoller();
 }
-
