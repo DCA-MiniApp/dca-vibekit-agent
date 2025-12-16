@@ -379,8 +379,10 @@ router.get("/user/:userAddress/history", async (req, res) => {
       message: `Found ${history.length} completed/failed task executions for user ${userAddress}`,
     };
 
-    // Store in cache (5 minutes TTL)
-    await setCache(cacheKey, response, 300);
+    // Store in cache (5 minutes TTL) only if we have data
+    if (history && history.length > 0) {
+      await setCache(cacheKey, response, 300);
+    }
 
     const duration = Date.now() - startTime;
     console.log(
