@@ -648,7 +648,7 @@ export function startJobStatusPoller() {
   });
 
   console.log(
-    "[Job Status Poller] Started - will poll every 5 minutes for job status updates"
+    "[Job Status Poller] Started - will poll every 10 minutes for job status updates"
   );
 
   // Run once immediately at startup

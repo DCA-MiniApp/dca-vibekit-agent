@@ -8,8 +8,8 @@ import {
 } from '../tools/dcaPlans.js';
 import { prepareDCASwapTool } from '../tools/prepareDCASwap.js';
 
-console.log('🔥🔥🔥 [SKILL] Loading DCA Swapping skill...');
-console.log('🔥🔥🔥 [SKILL] Available tools:', [
+console.log('[SKILL] Loading DCA Swapping skill...');
+console.log('[SKILL] Available tools:', [
   createDCAPlanTool.name,
   getUserDCAPlans.name,
   updateDCAPlanStatus.name,

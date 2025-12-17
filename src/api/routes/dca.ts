@@ -50,9 +50,9 @@ router.post("/create", async (req, res) => {
     );
 
     const incomingKey = req.headers["access-key"];
-    console.log("incomingKey:", incomingKey);
+    // console.log("incomingKey:", incomingKey);
     const serverKey = process.env.API_ACCESS_KEY;
-    console.log("serverKey:", serverKey);
+    // console.log("serverKey:", serverKey);
 
     if (!incomingKey || incomingKey !== serverKey) {
       return res.status(401).json({
@@ -96,7 +96,7 @@ router.post("/create", async (req, res) => {
     };
 
     console.log(
-      `✅ Created DCA plan: ${validatedData.fromToken} → ${validatedData.toToken} for ${validatedData.userAddress}`
+      `[Create Plan ] Created DCA plan: ${validatedData.fromToken} → ${validatedData.toToken} for ${validatedData.userAddress}`
     );
 
     // Invalidate user cache
@@ -127,7 +127,7 @@ router.get("/plans/:userAddress", async (req, res) => {
 
   try {
     const { userAddress } = req.params;
-    console.log("getting all plans for user", userAddress);
+    // console.log("getting all plans for user", userAddress);
 
     if (!isValidEthAddress(userAddress)) {
       return sendInvalidAddressError(res);
@@ -190,7 +190,7 @@ router.get("/plans/:userAddress", async (req, res) => {
 router.put("/plans/:planId/details", async (req, res) => {
   try {
     const { planId } = req.params;
-    console.log("🔍 [API /plans/:planId/details] Updating plan:", planId);
+    // console.log("🔍 [API /plans/:planId/details] Updating plan:", planId);
 
     const validatedData = UpdateDCAPlanDetailsSchema.parse(req.body);
 
@@ -233,7 +233,7 @@ router.put("/plans/:planId/details", async (req, res) => {
     };
 
     console.log(
-      `✅ Updated DCA plan ${planId} details: jobId=${validatedData.jobId}, ipfsLink=${validatedData.ipfsLink}`
+      `[Update Plan] Updated DCA plan ${planId} details: jobId=${validatedData.jobId}, ipfsLink=${validatedData.ipfsLink}`
     );
 
     // Invalidate user cache
@@ -278,7 +278,7 @@ router.put("/plans/:planId", async (req, res) => {
     };
 
     console.log(
-      `✅ Updated DCA plan ${planId} status to ${validatedData.status}`
+      `Updated DCA plan ${planId} status to ${validatedData.status}`
     );
 
     // Invalidate user cache
@@ -519,7 +519,7 @@ router.get("/users/failed-tasks", async (req, res) => {
       },
     });
 
-    console.log("Fetched users with jobIds:", users.length);
+    // console.log("Fetched users with jobIds:", users.length);
 
     const triggerxClient = new TriggerXClient(
       process.env.TRIGGERX_API_KEY || ""
@@ -624,7 +624,7 @@ router.put("/jobupdate/:userAddress", async (req, res) => {
   try {
     const { userAddress } = req.params;
     const { jobId } = req.body;
-    console.log(`Updating jobId for user ${userAddress} to null`);
+    console.log(`[Cancelled Plan] : Updating jobId for user ${userAddress} to null`);
 
     if (!userAddress || !jobId) {
       return res.status(400).json({
@@ -1119,7 +1119,7 @@ router.get("/platform-stats", async (req, res) => {
 // Manual trigger for job status polling
 router.post("/trigger-job-status-poll", async (req, res) => {
   try {
-    console.log("[API] Manual job status poll triggered");
+    // console.log("[API] Manual job status poll triggered");
 
     // Import the poll function dynamically to avoid circular dependencies
     const { pollJobStatusOnce } =

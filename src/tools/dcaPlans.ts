@@ -37,8 +37,8 @@ export const createDCAPlanTool: VibkitToolDefinition<
       fid,
     } = params;
 
-    console.log("🔥🔥🔥 [TOOL] createDCAPlan CALLED!");
-    console.log("🔥🔥🔥 [TOOL] Args:", {
+    console.log("[TOOL] createDCAPlan CALLED!");
+    console.log("[TOOL] Args:", {
       userAddress,
       fromToken,
       toToken,
@@ -49,12 +49,12 @@ export const createDCAPlanTool: VibkitToolDefinition<
       fid,
     });
     console.log(
-      "🔍 [TOOL createDCAPlan] userAddress from params:",
+      "[TOOL createDCAPlan] userAddress from params:",
       userAddress
     );
-    console.log("🔍 [TOOL createDCAPlan] Address length:", userAddress?.length);
+    console.log("[TOOL createDCAPlan] Address length:", userAddress?.length);
     console.log(
-      "🔍 [TOOL createDCAPlan] Address regex test:",
+      "[TOOL createDCAPlan] Address regex test:",
       /^0x[a-fA-F0-9]{40}$/.test(userAddress || "")
     );
 
@@ -92,7 +92,7 @@ export const createDCAPlanTool: VibkitToolDefinition<
 
       // Return plan details without executing first swap - TriggerX will handle execution
       console.log(
-        "🔥 [TOOL] Plan created successfully. Returning plan details for TriggerX integration..."
+        "[TOOL] Plan created successfully. Returning plan details for TriggerX integration..."
       );
 
       return createSuccessTask(
@@ -232,7 +232,7 @@ export const getPlatformStats: VibkitToolDefinition<any, any> = {
       }
 
       console.log(
-        "🔥 [TOOL] Platform statistics retrieved successfully:",
+        "[TOOL] Platform statistics retrieved successfully:",
         result
       );
       return createSuccessTask(

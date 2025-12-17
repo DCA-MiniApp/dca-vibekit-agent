@@ -168,7 +168,7 @@ async function fetchPriceByContractAddress(
 
     const data = (await response.json()) as Record<string, { usd?: number }>;
     const lowerAddress = contractAddress.toLowerCase();
-    console.log(data?.[lowerAddress]?.usd);
+    // console.log(data?.[lowerAddress]?.usd);
     return data[lowerAddress]?.usd || null;
   } catch (error) {
     console.error(

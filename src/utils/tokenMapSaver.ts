@@ -41,8 +41,8 @@ export async function saveTokenMapToJson(
     const filePath = path.join(process.cwd(), filename);
     await fs.writeFile(filePath, JSON.stringify(jsonData, null, 2), 'utf8');
     
-    console.log(`📁 [TokenMapSaver] ✅ Token map saved to: ${filePath}`);
-    console.log(`📊 [TokenMapSaver] Stats: ${jsonData.metadata.totalSymbols} symbols, ${jsonData.metadata.totalTokens} tokens`);
+    console.log(`[TokenMapSaver] ✅ Token map saved to: ${filePath}`);
+    console.log(`[TokenMapSaver] Stats: ${jsonData.metadata.totalSymbols} symbols, ${jsonData.metadata.totalTokens} tokens`);
     
     // Also save a simplified version with just Arbitrum tokens
     await saveArbitrumOnlyTokenMap(tokenMap, filename.replace('.json', '_arbitrum.json'));
@@ -99,7 +99,7 @@ async function saveArbitrumOnlyTokenMap(
     const filePath = path.join(process.cwd(), filename);
     await fs.writeFile(filePath, JSON.stringify(jsonData, null, 2), 'utf8');
     
-    console.log(`📁 [TokenMapSaver] ✅ Arbitrum token map saved to: ${filePath}`);
+    console.log(`[TokenMapSaver] ✅ Arbitrum token map saved to: ${filePath}`);
     
   } catch (error) {
     console.error('❌ [TokenMapSaver] Failed to save Arbitrum token map:', error);
@@ -148,7 +148,7 @@ export async function saveSampleTokenMap(
     const filePath = path.join(process.cwd(), filename);
     await fs.writeFile(filePath, JSON.stringify(jsonData, null, 2), 'utf8');
     
-    console.log(`📁 [TokenMapSaver] ✅ Sample token map saved to: ${filePath}`);
+    console.log(`[TokenMapSaver] ✅ Sample token map saved to: ${filePath}`);
     
   } catch (error) {
     console.error('❌ [TokenMapSaver] Failed to save sample token map:', error);

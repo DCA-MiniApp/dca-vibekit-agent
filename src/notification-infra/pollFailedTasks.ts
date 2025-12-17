@@ -43,10 +43,10 @@ export async function pollFailedTasksOnce() {
     let tasks: any[] = [];
     // const POLLER_TEST_DATA=true;
     if (process.env.POLLER_TEST_DATA === "TRUE") {
-      console.log("[Poller] Using static TEST data (POLLER_TEST_DATA=true)");
+      // console.log("[Poller] Using static TEST data (POLLER_TEST_DATA=true)");
       tasks = TEST_FAILED_TASKS;
     } else {
-      console.log(`[Poller] Fetching failed tasks from ${FAILED_TASKS_API}...`);
+      // console.log(`[Poller] Fetching failed tasks from ${FAILED_TASKS_API}...`);
       const { data } = await axios.get(FAILED_TASKS_API, {
         timeout: 60000, // 1 minutes timeout
       });
@@ -147,17 +147,6 @@ export async function pollFailedTasksOnce() {
  * Also runs once immediately on startup to catch any existing failed tasks.
  */
 export function startPoller() {
-  // Schedule to run every 3 minutes
-  // Cron expression: "*/3 * * * *" means every 3 minutes
-  // cron.schedule("*/3 * * * *", () => {
-  //   console.log("[Poller] Scheduled polling cycle started...");
-  //   pollFailedTasksOnce().catch((e) => console.error("[Poller] Scheduled run error", e));
-  // });
-
-  //   cron.schedule("0 */1 * * *", () => {
-  //   console.log("[Poller] Scheduled polling cycle started...");
-  //   pollFailedTasksOnce().catch((e) => console.error("[Poller] Scheduled run error", e));
-  // });
 
   cron.schedule("*/20 * * * *", () => {
     console.log("[Poller] Scheduled polling cycle started...");
@@ -166,10 +155,10 @@ export function startPoller() {
     );
   });
 
-  console.log("[Poller] Started - will poll every 1 hours");
+  // console.log("[Poller] Started - will poll every 1 hours");
 
   // Run once immediately at startup
-  console.log("[Poller] Running initial check...");
+  // console.log("[Poller] Running initial check...");
   pollFailedTasksOnce().catch((e) =>
     console.error("[Poller] Initial run error", e)
   );
