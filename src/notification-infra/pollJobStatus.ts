@@ -552,6 +552,38 @@ export async function pollJobStatusOnce() {
                 await sendSlackNotification(taskNotificationData);
                 notifiedCount++;
 
+                // Additionally, queue failed-task notifications for Farcaster using the same
+                // logic and payload shape as pollFailedTasks.ts
+                if (taskStatus === "failed" && fid) {
+                  const failedIdempotencyKey = `${jobId}:${taskId}:failed`;
+                  const failedOk = await tryInsertDedup(failedIdempotencyKey);
+                  if (failedOk) {
+                    await notificationQueue.add(
+                      "sendNotification",
+                      {
+                        idempotencyKey: failedIdempotencyKey,
+                        notificationType: "failed-task",
+                        jobId,
+                        taskId,
+                        planId: plan.id,
+                        userAddress,
+                        fid: fid || null,
+                        txHash: task.execution_tx_hash || undefined,
+                        chainId: jobData.created_chain_id || undefined,
+                        reason: "Task failed",
+                        occurredAt: new Date().toISOString(),
+                        txUrl: txUrl || undefined,
+                      },
+                      {
+                        attempts: 5,
+                        backoff: { type: "exponential", delay: 5000 },
+                        removeOnComplete: 1000,
+                        removeOnFail: 1000,
+                      }
+                    );
+                  }
+                }
+
                 // Additionally, send in-app notification for task success
                 if (taskStatus === "completed" && fid) {
                   const fcIdempotencyKey = `${jobId}:task-success:${taskId}:fid:${fid}`;
