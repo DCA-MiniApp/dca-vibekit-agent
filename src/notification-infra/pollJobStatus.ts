@@ -605,7 +605,7 @@ export async function pollJobStatusOnce() {
                         toToken: plan.toToken,
                         amount: plan.amount.toString(),
                         username,
-                        reason: `Hey ${username ? `, ${username}` : ""}!  Your DCA plan ${plan.fromToken} → ${plan.toToken} with amount ${plan.amount.toString()} was executed successfully.\n With Task ID: ${taskId}\nYou can verify it in the History tab.`,
+                        reason: `Hey${username ? `, ${username}` : ""}!  Your DCA plan ${plan.fromToken} → ${plan.toToken} with amount ${plan.amount.toString()} was executed successfully.\n With Task ID: ${taskId}\nYou can verify it in the History tab.`,
                       },
                       {
                         attempts: 5,
