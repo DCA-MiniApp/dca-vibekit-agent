@@ -433,12 +433,58 @@ export async function pollJobStatusOnce() {
 
         const { jobData, taskData } = jobDataResp.data;
 
-        // Extract job status
-        const jobStatus = jobData.status;
+        // Extract job status from nested structure
+        // The actual API response has: jobData.job_data.status (nested structure)
+        // Type definition may not match, so we use type assertion
+        const jobDataAny = jobData as any;
 
-        // Track stats
-        if (stats.jobStatuses[jobStatus] !== undefined) {
-          stats.jobStatuses[jobStatus]++;
+        // Log the structure for first few jobs to help debug
+        if (notifiedCount === 0 && skippedCount < 3) {
+          // console.log(
+          //   `[Job Status Poller] DEBUG - Job ${jobId} response structure:`,
+          //   JSON.stringify({ jobData: jobDataAny }, null, 2).substring(0, 800)
+          // );
+        }
+
+        const jobStatus =
+          jobDataAny?.job_data?.status || jobDataAny?.status || "unknown";
+
+        // Extract chain ID from nested structure (for future use)
+        const chainId =
+          jobDataAny?.job_data?.created_chain_id ||
+          jobDataAny?.created_chain_id ||
+          undefined;
+
+        // Log the full structure for debugging if status is missing
+        if (jobStatus === "unknown") {
+          console.warn(
+            `[Job Status Poller] Job ${jobId} - Could not find status. JobData structure:`,
+            JSON.stringify(jobData, null, 2).substring(0, 1000)
+          );
+        } else {
+          console.log(
+            `[Job Status Poller] Job ${jobId} has status: ${jobStatus} (chainId: ${chainId || "N/A"})`
+          );
+        }
+
+        // Track stats - normalize status to lowercase for consistency
+        const normalizedStatus = jobStatus.toLowerCase();
+        if (stats.jobStatuses[normalizedStatus] !== undefined) {
+          stats.jobStatuses[normalizedStatus]++;
+        } else {
+          // Log if we get an unexpected status value
+          console.warn(
+            `[Job Status Poller] Unexpected job status: ${jobStatus} (normalized: ${normalizedStatus}) for job ${jobId}. Available statuses: ${Object.keys(stats.jobStatuses).join(", ")}`
+          );
+          // Still track it if it's a known status with different casing
+          if (
+            ["pending", "processing", "completed", "failed"].includes(
+              normalizedStatus
+            )
+          ) {
+            stats.jobStatuses[normalizedStatus] =
+              (stats.jobStatuses[normalizedStatus] || 0) + 1;
+          }
         }
 
         // Fetch username from user table if fid is available
