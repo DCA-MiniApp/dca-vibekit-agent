@@ -95,12 +95,20 @@ async function sendSlackNotification(data: JobStatusData) {
     username && fid ? `${username}[${fid}]` : fid ? `FID: ${fid}` : "No FID";
 
   // Job status with badge/color indicator
+  // Handle undefined, null, or unknown statuses gracefully
+  const normalizedJobStatus = (jobStatus || "unknown").toLowerCase();
   const jobStatusDisplay =
-    jobStatus === "completed"
+    normalizedJobStatus === "completed"
       ? `\`completed\` ✅`
-      : jobStatus === "failed"
-        ? `\`${jobStatus}\` ❌`
-        : `\`${jobStatus}\``;
+      : normalizedJobStatus === "failed"
+        ? `\`failed\` ❌`
+        : normalizedJobStatus === "processing"
+          ? `\`processing\` ⏳`
+          : normalizedJobStatus === "pending"
+            ? `\`pending\` ⏸️`
+            : jobStatus
+              ? `\`${jobStatus}\` 📊`
+              : `\`unknown\` ❓`;
 
   // Task status with badge/color indicator
   const taskStatusDisplay =
@@ -231,7 +239,7 @@ async function sendSlackNotification(data: JobStatusData) {
       SLACK_WEBHOOK_URL,
       {
         blocks,
-        text: `DCA Job Status Update - ${jobStatus}`,
+        text: `DCA Job Status Update - ${jobStatus || "unknown"}`,
       },
       {
         timeout: 10000,
@@ -503,6 +511,9 @@ export async function pollJobStatusOnce() {
           }
         }
 
+        // Ensure jobStatus is always a valid string (not undefined)
+        const validJobStatus = jobStatus && jobStatus !== "unknown" ? jobStatus : "unknown";
+
         // Prepare base notification data
         const baseData: JobStatusData = {
           planId: plan.id,
@@ -514,13 +525,13 @@ export async function pollJobStatusOnce() {
           ipfsLink: plan.ipfsLink,
           fid: fid,
           username: username,
-          jobStatus: jobStatus,
+          jobStatus: validJobStatus,
           intervalSeconds: plan.intervalSeconds,
           durationSeconds: plan.durationSeconds,
         };
 
-        // Create idempotency key for job status
-        const jobIdempotencyKey = `${jobId}:job-status:${jobStatus}`;
+        // Create idempotency key for job status (use validJobStatus to avoid undefined)
+        const jobIdempotencyKey = `${jobId}:job-status:${validJobStatus}`;
 
         // Check if we've already sent notification for this job status
         const jobStatusSent = await tryInsertDedup(jobIdempotencyKey);
@@ -528,7 +539,7 @@ export async function pollJobStatusOnce() {
         if (jobStatusSent) {
           // Only send individual notifications for important statuses or if under limit
           const isImportantStatus =
-            jobStatus === "completed" || jobStatus === "failed";
+            validJobStatus === "completed" || validJobStatus === "failed";
 
           if (
             isImportantStatus ||
@@ -547,16 +558,16 @@ export async function pollJobStatusOnce() {
             }
 
             console.log(
-              `[Job Status Poller] Sent job status notification (${jobStatus}) for job ${jobId}`
+              `[Job Status Poller] Sent job status notification (${validJobStatus}) for job ${jobId}`
             );
           } else {
             console.log(
-              `[Job Status Poller] Queued job status update (${jobStatus}) for summary (limit reached)`
+              `[Job Status Poller] Queued job status update (${validJobStatus}) for summary (limit reached)`
             );
           }
         } else {
           console.log(
-            `[Job Status Poller] Skipping duplicate job status notification (${jobStatus}) for job ${jobId}`
+            `[Job Status Poller] Skipping duplicate job status notification (${validJobStatus}) for job ${jobId}`
           );
         }
 
