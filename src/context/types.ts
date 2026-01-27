@@ -2,10 +2,12 @@ import type { PrismaClient } from '@prisma/client';
 import type { LanguageModelV1 } from 'ai';
 import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import type { Address } from 'viem';
+import type { McpClientManager } from '../utils/mcpClientManager.js';
 // Removed transaction executor import since we don't need it anymore
 
 export interface ContextDependencies {
   mcpClients: Record<string, Client>;
+  mcpClientManager?: McpClientManager;
   llmModel?: LanguageModelV1;
 }
 
@@ -23,6 +25,9 @@ export interface DCAContext {
   
   // MCP client for Ember operations
   mcpClient: Client | null;
+  
+  // MCP client manager for automatic reconnection
+  mcpClientManager?: McpClientManager;
   
   // Token mappings from Ember MCP
   tokenMap: Record<string, TokenInfo[]>;

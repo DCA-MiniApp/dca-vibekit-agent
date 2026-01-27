@@ -72,36 +72,35 @@ function safeToHuman(value: string): string {
 }
 
 /**
- * Retry wrapper for MCP client calls with exponential backoff
+ * Retry wrapper for MCP client calls with exponential backoff and auto-reconnection
  */
 async function retryMcpCall<T>(
-  mcpClient: any,
+  context: any,
   toolName: string,
   args: any,
   maxRetries: number = 3,
   baseDelay: number = 5000
 ): Promise<T> {
   let lastError: Error | null = null;
+  const { mcpClient, mcpClientManager } = context.custom;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       console.log(`[MCP Retry] 🎯 Attempt ${attempt}/${maxRetries} for ${toolName}`);
       console.log("args", args);
-      // const tools = await mcpClient.listTools();
-      // console.log("tools", tools);
-      // const createSwapTool = tools.tools.find((t: any) => t.name === "createSwap");
 
-      // console.log(
-      //   "createSwap.inputSchema",
-      //   JSON.stringify(createSwapTool.inputSchema, null, 2)
-      // );
+      // Get potentially reconnected client
+      let clientToUse = mcpClient;
+      if (mcpClientManager) {
+        try {
+          clientToUse = await mcpClientManager.getClient();
+          console.log(`[MCP Retry] ✅ Client manager provided client (uptime: ${mcpClientManager.getUptimeSeconds()}s)`);
+        } catch (e) {
+          console.warn('[MCP Retry] ⚠️ Failed to get client from manager, using existing client');
+        }
+      }
 
-      // console.log(
-      //   "createSwap.outputSchema",
-      //   JSON.stringify(createSwapTool.outputSchema, null, 2)
-      // );
-
-      const result = await mcpClient.callTool({
+      const result = await clientToUse.callTool({
         name: toolName,
         arguments: args,
       });
@@ -112,6 +111,26 @@ async function retryMcpCall<T>(
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       console.error(`[MCP Retry] ❌ Attempt ${attempt}/${maxRetries} failed for ${toolName}:`, lastError.message);
+
+      // Import McpClientManager's isSessionError method
+      const { McpClientManager } = await import('../utils/mcpClientManager.js');
+      
+      // Check if it's a session error that requires reconnection
+      if (McpClientManager.isSessionError(lastError)) {
+        console.error(`[MCP Retry] 🔌 Session/Connection error detected: ${lastError.message}`);
+        if (mcpClientManager) {
+          mcpClientManager.resetConnection();
+          console.log(`[MCP Retry] 🔄 Connection reset - will reconnect on next retry`);
+        }
+        
+        // Still retry if attempts remaining
+        if (attempt < maxRetries) {
+          const delay = baseDelay * attempt; // Progressive delay: 5s, 10s, 15s
+          console.log(`[MCP Retry] ⏳ Retrying in ${delay / 1000} seconds...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+      }
 
       // Check if it's a network-related error that should be retried
       const isNetworkError = lastError.message.toLowerCase().includes('fetch failed') ||
@@ -228,9 +247,9 @@ const basePrepareDCASwapTool: VibkitToolDefinition<typeof PrepareDCASwapParams, 
         amountType: "exactIn",                   // or "exactOut"
         // slippageTolerance: "0.5",           // string (percentage or bps depending on API)
       };
-      // Use retry mechanism for network resilience
+      // Use retry mechanism for network resilience with automatic reconnection
       const swapResult: any = await retryMcpCall(
-        context.custom.mcpClient,
+        context,
         'createSwap',
         swapArgs,
         3, // maxRetries

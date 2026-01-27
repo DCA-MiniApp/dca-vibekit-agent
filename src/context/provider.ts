@@ -250,7 +250,7 @@ export async function contextProvider(
     console.warn('   Please check your DATABASE_URL in .env file');
   }
 
-  const { mcpClients, llmModel } = deps;
+  const { mcpClients, mcpClientManager, llmModel } = deps;
   // console.log("MCP client details:",mcpClients);
   // console.log("LLM Model details:",llmModel);
 
@@ -315,6 +315,7 @@ export async function contextProvider(
   const context: DCAContext = {
     prisma,
     mcpClient: emberMcpClient,
+    mcpClientManager,
     tokenMap,
     userAddress: defaultUserAddress,
     llmModel,

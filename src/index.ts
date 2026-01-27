@@ -7,10 +7,10 @@
 import 'dotenv/config';
 import { Agent, createProviderSelector, getAvailableProviders } from 'arbitrum-vibekit-core';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { contextProvider } from './context/provider.js';
 import { agentConfig } from './config.js';
 import { app as apiServer } from './api/server.js';
+import { McpClientManager } from './utils/mcpClientManager.js';
 // Removed scheduler import since we don't need automated scheduling anymore
 
 // Skills - implemented and planned
@@ -76,42 +76,42 @@ async function startAgent() {
       console.log('🔥🔥🔥 [AGENT] Available tools:', agentConfig.skills.flatMap(s => s.tools.map(t => t.name)));
 
       let emberMcpClient: Client | null = null;
+      let mcpClientManager: McpClientManager | null = null;
 
       const emberEndpoint = process.env.EMBER_MCP_SERVER_URL || 'https://api.emberai.xyz/mcp';
 
       try {
         console.log(`[DCA Agent] Connecting to MCP server at ${emberEndpoint}`);
-        emberMcpClient = new Client(
-          { name: 'DCAAgent', version: '1.0.0' },
-          { capabilities: {} }
-        );
+        
+        // Create MCP client manager for automatic reconnection handling
+        mcpClientManager = new McpClientManager({
+          endpoint: emberEndpoint,
+          clientName: 'DCAAgent',
+          clientVersion: '1.0.0',
+          connectionTimeoutMs: parseInt(process.env.MCP_CONNECTION_TIMEOUT || '60000', 10),
+        });
 
-        const transport = new StreamableHTTPClientTransport(new URL(emberEndpoint));
-        // await emberMcpClient.connect(transport);
-        // Add connection timeout similar to other agents
-        const timeoutMs = parseInt(process.env.MCP_CONNECTION_TIMEOUT || '60000', 10);
-        const connectionPromise = emberMcpClient.connect(transport);
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`MCP connection timeout after ${timeoutMs}ms`)), timeoutMs)
-        );
-        await Promise.race([connectionPromise, timeoutPromise]);
+        // Get initial client connection
+        emberMcpClient = await mcpClientManager.getClient();
         console.log('[DCA Agent] MCP client connected successfully.');
       } catch (error) {
         console.error('[DCA Agent] Failed to connect to MCP server:', error);
       }
 
-      // Add the manual MCP client to the deps so tools can access it (only if connection succeeded)
+      // Add the manual MCP client and manager to the deps so tools can access it
       const updatedDeps = {
         ...deps,
         mcpClients: emberMcpClient ? {
           ...deps.mcpClients,
           'ember-mcp-tool-server': emberMcpClient
-        } : deps.mcpClients
+        } : deps.mcpClients,
+        mcpClientManager: mcpClientManager || undefined
       };
 
       // The context provider needs the LLM model from the agent configuration
       const llmModel = selectedProvider!(modelOverride);
       const context = await contextProvider({ ...updatedDeps, llmModel });
+
 
       // Removed DCA scheduler - execution is now handled by TriggerX
       console.log('ℹ️  DCA scheduler removed - execution handled by TriggerX');
