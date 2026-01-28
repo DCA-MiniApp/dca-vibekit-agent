@@ -12,8 +12,9 @@ import { statusRoutes } from './routes/status.js';
 // import '../notification-infra/pollLowBalanceWarnings.js';
 // This will auto-start the worker (processes notification jobs from queue)
 import '../notification-infra/notificationWorker.js';
-// This will auto-start the job status poller (checks for job status every 10 minutes)
+// // This will auto-start the job status poller (checks for job status every 10 minutes)
 import '../notification-infra/pollJobStatus.js';
+import { webhookRoutes } from './routes/webhooks.js';
 
 const app: express.Application = express();
 
@@ -26,7 +27,7 @@ const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:3000';
 app.use(cors({
   origin: corsOrigin,
   methods: ['POST', 'PUT', 'DELETE', 'OPTIONS', 'GET'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'ishome','Access-Key'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'ishome', 'Access-Key'],
   credentials: true,
 }));
 
@@ -54,6 +55,7 @@ app.get('/health', async (req, res) => {
 app.use('/api/dca', dcaRoutes);
 app.use('/api/dca', prepareSwapRouter);
 app.use('/api/status', statusRoutes);
+app.use('/api/webhooks', webhookRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -73,7 +75,7 @@ app.get('/', (req, res) => {
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('API Error:', err);
-  
+
   if (err.name === 'ValidationError') {
     return res.status(400).json({
       error: 'Validation Error',
